@@ -759,6 +759,17 @@ function _fixSplitNames(arr){
 }
 if(_fixSplitNames(pl2025)) try{localStorage.setItem('salestracker_pl_2025',JSON.stringify(pl2025))}catch(e){}
 if(_fixSplitNames(pl2026)) try{localStorage.setItem('salestracker_pl_2026',JSON.stringify(pl2026))}catch(e){}
+// One-time fix: normalize agent names in leads
+(function(){
+ var changed = false;
+ leads.forEach(function(l){
+  if(l.agent){
+   var k = l.agent.toLowerCase().trim();
+   if(_nameFixMap[k]){ l.agent = _nameFixMap[k]; changed = true; }
+  }
+ });
+ if(changed){ try{localStorage.setItem('salestracker_leads',JSON.stringify(leads))}catch(e){} debouncedFirebaseSync('leads'); }
+})();
 
 // Active year pointers
 pl = activeYear === 2026 ? pl2026 : pl2025;
@@ -3401,19 +3412,21 @@ function renderFunnelHealth(){
 
  // Gather from both leads (CRM) and cases (Book of Business)
  var agentFlow = {};
- // From leads — filter by created date
+ // From leads — filter by created date, RESOLVE agent names
  leads.forEach(function(l){
   var created = (l.created||'').substring(0,10);
   if(created < artStartDate || created > artEndDate) return;
-  var ag = l.agent || 'Unassigned';
-  if(ag === 'Unassigned' && l.source !== 'Split Agent Referral') return;
-  if(!agentFlow[ag]) agentFlow[ag] = {leads:0, active:0, meetings:0, won:0, lost:0, nurturing:0, cases:0, commission:0, premium:0};
+  var rawAg = l.agent || 'Unassigned';
+  if(rawAg === 'Unassigned' && l.source !== 'Split Agent Referral') return;
+  var ag = rawAg === 'Unassigned' ? rawAg : resolveAgentName(rawAg);
+  if(!agentFlow[ag]) agentFlow[ag] = {leads:0, active:0, meetings:0, won:0, lost:0, nurturing:0, cases:0, commission:0, premium:0, leadIds:[], wonIds:[], lostIds:[], activeIds:[], meetingIds:[], nurturingIds:[]};
   agentFlow[ag].leads++;
-  if(l.stage !== 'won' && l.stage !== 'lost') agentFlow[ag].active++;
-  if(l.stage === 'meeting_set' || l.stage === 'quoted' || l.stage === 'app_submitted') agentFlow[ag].meetings++;
-  if(l.stage === 'won') agentFlow[ag].won++;
-  if(l.stage === 'lost') agentFlow[ag].lost++;
-  if(l.stage === 'incubator') agentFlow[ag].nurturing++;
+  agentFlow[ag].leadIds.push(l.id);
+  if(l.stage !== 'won' && l.stage !== 'lost' && l.stage !== 'incubator'){ agentFlow[ag].active++; agentFlow[ag].activeIds.push(l.id); }
+  if(l.stage === 'meeting_set' || l.stage === 'quoted' || l.stage === 'app_submitted'){ agentFlow[ag].meetings++; agentFlow[ag].meetingIds.push(l.id); }
+  if(l.stage === 'won'){ agentFlow[ag].won++; agentFlow[ag].wonIds.push(l.id); }
+  if(l.stage === 'lost'){ agentFlow[ag].lost++; agentFlow[ag].lostIds.push(l.id); }
+  if(l.stage === 'incubator'){ agentFlow[ag].nurturing++; agentFlow[ag].nurturingIds.push(l.id); }
  });
  // From cases (book of business) — filter by submitted date, resolve name to agent directory
  pl.forEach(function(c){
@@ -3421,7 +3434,7 @@ function renderFunnelHealth(){
   var sub = (c.submitted||'').substring(0,10);
   if(sub < artStartDate || sub > artEndDate) return;
   var ag = resolveAgentName(c.splitName);
-  if(!agentFlow[ag]) agentFlow[ag] = {leads:0, active:0, meetings:0, won:0, lost:0, nurturing:0, cases:0, commission:0, premium:0};
+  if(!agentFlow[ag]) agentFlow[ag] = {leads:0, active:0, meetings:0, won:0, lost:0, nurturing:0, cases:0, commission:0, premium:0, leadIds:[], wonIds:[], lostIds:[], activeIds:[], meetingIds:[], nurturingIds:[]};
   agentFlow[ag].cases++;
   var calc = calcCase(c);
   agentFlow[ag].commission += calc.steveShare;
@@ -3437,9 +3450,18 @@ function renderFunnelHealth(){
    var a = agentFlow[ag];
    var convRate = (a.won + a.lost) > 0 ? Math.round(a.won / (a.won + a.lost) * 100) : 0;
    totals.leads+=a.leads; totals.active+=a.active; totals.meetings+=a.meetings; totals.won+=a.won; totals.lost+=a.lost; totals.nurturing+=a.nurturing; totals.cases+=a.cases; totals.commission+=a.commission;
-   h += '<tr><td><b>'+ag+'</b></td><td>'+a.leads+'</td><td>'+a.active+'</td><td>'+a.meetings+'</td>';
-   h += '<td>'+a.won+(convRate>0?' <span style="font-size:10px;color:var(--muted)">('+convRate+'%)</span>':'')+'</td>';
-   h += '<td>'+a.lost+'</td><td>'+a.nurturing+'</td><td>'+a.cases+'</td><td>'+fmt(a.commission)+'</td></tr>';
+   var lnk = function(count, ids, label){
+    if(count === 0 || !ids || ids.length === 0) return ''+count;
+    return '<a href="#" onclick="event.preventDefault();showAgentLeads(\''+ag.replace(/'/g,"\\'")+'\','+JSON.stringify(ids)+',\''+label+'\')" style="color:var(--pri);font-weight:600;text-decoration:underline;cursor:pointer">'+count+'</a>';
+   };
+   h += '<tr><td><b>'+ag+'</b></td>';
+   h += '<td>'+lnk(a.leads,a.leadIds,'All Leads')+'</td>';
+   h += '<td>'+lnk(a.active,a.activeIds,'Active')+'</td>';
+   h += '<td>'+lnk(a.meetings,a.meetingIds,'Meetings+')+'</td>';
+   h += '<td>'+lnk(a.won,a.wonIds,'Won')+(convRate>0?' <span style="font-size:10px;color:var(--muted)">('+convRate+'%)</span>':'')+'</td>';
+   h += '<td>'+lnk(a.lost,a.lostIds,'Lost')+'</td>';
+   h += '<td>'+lnk(a.nurturing,a.nurturingIds,'Nurturing')+'</td>';
+   h += '<td>'+a.cases+'</td><td>'+fmt(a.commission)+'</td></tr>';
   });
   h += '<tr style="font-weight:700;background:var(--gtint)"><td>TOTALS</td><td>'+totals.leads+'</td><td>'+totals.active+'</td><td>'+totals.meetings+'</td><td>'+totals.won+'</td><td>'+totals.lost+'</td><td>'+totals.nurturing+'</td><td>'+totals.cases+'</td><td>'+fmt(totals.commission)+'</td></tr>';
   h += '</table>';
@@ -4865,6 +4887,33 @@ function agentNameMatch(splitName, agentName){
  }
  return false;
 }
+function showAgentLeads(agentName, leadIds, filterLabel){
+ var filtered = leads.filter(function(l){ return leadIds.indexOf(l.id) >= 0; });
+ if(filtered.length === 0){ showToast('No leads found', 2000); return; }
+ var h = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center" onclick="this.remove()">';
+ h += '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:12px;max-width:700px;width:95%;max-height:85vh;overflow-y:auto;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,.2)">';
+ h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
+ h += '<h2 style="margin:0;color:var(--pri)">'+agentName+' — '+filterLabel+' ('+filtered.length+')</h2>';
+ h += '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">&times;</button>';
+ h += '</div>';
+ h += '<table><tr><th>Name</th><th>Phone</th><th>Stage</th><th>Interest</th><th>Created</th><th></th></tr>';
+ filtered.forEach(function(l){
+  var stageColor = CRM_STAGE_COLORS[l.stage] || '#999';
+  var created = l.created ? new Date(l.created).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+  h += '<tr>';
+  h += '<td><b>'+l.name+'</b></td>';
+  h += '<td><a href="tel:'+l.phone+'" style="color:var(--pri)">'+l.phone+'</a></td>';
+  h += '<td><span style="background:'+stageColor+';color:#fff;font-size:10px;padding:2px 6px;border-radius:4px">'+CRM_STAGE_LABELS[l.stage]+'</span></td>';
+  h += '<td>'+l.interest+'</td>';
+  h += '<td>'+created+'</td>';
+  h += '<td><a href="#" onclick="event.preventDefault();this.closest(\'div[style*=fixed]\').remove();crmEditId='+l.id+';crmView=\'lead\';showTab(6)" style="color:var(--pri);font-size:11px">Open →</a></td>';
+  h += '</tr>';
+ });
+ h += '</table>';
+ h += '</div></div>';
+ document.body.insertAdjacentHTML('beforeend', h);
+}
+
 function resolveAgentName(rawName){
  if(!rawName) return '(No Agent)';
  var lower = rawName.toLowerCase().trim();
