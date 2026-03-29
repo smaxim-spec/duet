@@ -4056,6 +4056,8 @@ function renderCallQueue(){
    }
    h += '<button class="btn btn-sm btn-outline" onclick="crmEditId='+lead.id+';crmView=\'lead\';renderCRM();setTimeout(function(){var el=document.getElementById(\'sched_section_'+lead.id+'\');if(el)el.scrollIntoView({behavior:\'smooth\'})},100)" title="Schedule" style="padding:1px 4px;font-size:9px">📅</button>';
    h += '<button class="btn btn-sm btn-outline" onclick="deleteLead('+lead.id+')" title="Delete" style="padding:1px 4px;font-size:9px;color:#c0392b;border-color:#c0392b">✕</button>';
+   var openObj = (lead.objections||[]).filter(function(o){return o.status==='Open'}).length;
+   if(openObj > 0) h += '<span title="'+openObj+' open objection'+(openObj>1?'s':'')+'" style="background:#e74c3c;color:#fff;font-size:8px;padding:1px 5px;border-radius:4px;font-weight:600">⚠️'+openObj+'</span>';
    h += '<span class="badge" style="background:'+borderColor+';color:#fff;font-size:8px;padding:1px 5px;margin-left:auto">'+CRM_STAGE_LABELS[lead.stage]+'</span>';
    h += '</div></div>';
   });
@@ -4471,6 +4473,60 @@ function renderLeadDetail(){
  h += '</div>';
  h += '</div>'; // end grid2
 
+ // OBJECTIONS & CONCERNS LOG
+ if(!lead.objections) lead.objections = [];
+ h += '<div class="card" style="margin-top:12px;border-left:4px solid #e74c3c">';
+ h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+ h += '<h3 style="margin:0;color:#e74c3c">⚠️ Objections & Concerns ('+lead.objections.length+')</h3>';
+ h += '<button class="btn btn-sm btn-outline" onclick="document.getElementById(\'obj_form_'+lead.id+'\').style.display=document.getElementById(\'obj_form_'+lead.id+'\').style.display===\'none\'?\'block\':\'none\'" style="font-size:10px;border-color:#e74c3c;color:#e74c3c">+ Log Objection</button>';
+ h += '</div>';
+ // Add objection form (hidden by default)
+ h += '<div id="obj_form_'+lead.id+'" style="display:none;background:#fff5f5;border:1px solid #f5c6cb;border-radius:8px;padding:10px;margin-bottom:10px">';
+ h += '<div class="form-group"><label style="font-size:11px;font-weight:600;color:#e74c3c">Concern / Objection</label>';
+ h += '<input id="obj_concern_'+lead.id+'" placeholder="e.g. Worried about surrender charges, wants to keep CD..." style="font-size:11px;width:100%"></div>';
+ h += '<div class="form-group"><label style="font-size:11px;font-weight:600;color:var(--pri)">Your Response</label>';
+ h += '<input id="obj_response_'+lead.id+'" placeholder="How did you address it? (optional — can fill in later)" style="font-size:11px;width:100%"></div>';
+ h += '<div style="display:flex;gap:6px;align-items:center">';
+ h += '<select id="obj_category_'+lead.id+'" style="font-size:11px;width:auto">';
+ h += '<option value="Price/Cost">Price/Cost</option><option value="Timing">Timing</option><option value="Trust/Risk">Trust/Risk</option>';
+ h += '<option value="Need/Fit">Need/Fit</option><option value="Spouse/Family">Spouse/Family</option><option value="Competitor">Competitor</option>';
+ h += '<option value="Liquidity">Liquidity</option><option value="Tax Concern">Tax Concern</option><option value="Other">Other</option>';
+ h += '</select>';
+ h += '<button class="btn btn-sm" onclick="addObjection('+lead.id+')" style="background:#e74c3c;color:#fff;font-size:11px">Save Objection</button>';
+ h += '</div></div>';
+ // Objection log entries
+ if(lead.objections.length === 0){
+  h += '<p style="color:var(--muted);font-size:12px">No objections logged yet. Log concerns as they come up so you\'re prepared for follow-up calls.</p>';
+ } else {
+  var sortedObj = lead.objections.slice().sort(function(a,b){ return new Date(b.date) - new Date(a.date); });
+  sortedObj.forEach(function(obj, idx){
+   var origIdx = lead.objections.indexOf(obj);
+   var d = new Date(obj.date);
+   var dateStr = d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+   var statusColor = obj.status === 'Resolved' ? 'var(--grn)' : obj.status === 'Addressed' ? 'var(--amb)' : '#e74c3c';
+   var statusBg = obj.status === 'Resolved' ? 'var(--gtint)' : obj.status === 'Addressed' ? 'var(--atint)' : '#fff5f5';
+   h += '<div style="background:'+statusBg+';border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:8px">';
+   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+   h += '<div style="display:flex;gap:6px;align-items:center">';
+   h += '<span style="background:'+statusColor+';color:#fff;font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600">'+obj.status+'</span>';
+   h += '<span style="font-size:9px;background:#eee;color:#666;padding:2px 6px;border-radius:4px">'+obj.category+'</span>';
+   h += '<span style="font-size:10px;color:var(--muted)">'+dateStr+'</span>';
+   h += '</div>';
+   h += '<select onchange="updateObjectionStatus('+lead.id+','+origIdx+',this.value)" style="font-size:10px;width:auto;padding:1px 4px">';
+   ['Open','Addressed','Resolved'].forEach(function(s){ h += '<option value="'+s+'"'+(obj.status===s?' selected':'')+'>'+s+'</option>'; });
+   h += '</select>';
+   h += '</div>';
+   h += '<div style="font-size:12px;font-weight:600;color:#333;margin-bottom:2px">'+obj.concern+'</div>';
+   if(obj.response){
+    h += '<div style="font-size:11px;color:var(--pri);margin-top:2px"><strong>Response:</strong> '+obj.response+'</div>';
+   } else {
+    h += '<div style="margin-top:4px"><input placeholder="Add your response..." onchange="updateObjectionResponse('+lead.id+','+origIdx+',this.value)" style="font-size:11px;width:100%;border:1px dashed #ccc;padding:3px 6px"></div>';
+   }
+   h += '</div>';
+  });
+ }
+ h += '</div>';
+
  // DISCOVERY SECTION — prominent when in discovery stage
  var cat = lead.interest;
  var questions = NA_QUESTIONS[cat];
@@ -4678,6 +4734,48 @@ function addHistoryNote(leadId){
  saveLeads();
  renderCRM();
  showToast('Note added!', 2000);
+}
+
+function addObjection(leadId){
+ var concern = document.querySelector('#obj_concern_'+leadId);
+ if(!concern || !concern.value.trim()){ showToast('Enter the concern first', 2000); return; }
+ var response = document.querySelector('#obj_response_'+leadId);
+ var category = document.querySelector('#obj_category_'+leadId);
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead) return;
+ if(!lead.objections) lead.objections = [];
+ lead.objections.push({
+  date: new Date().toISOString(),
+  concern: concern.value.trim(),
+  response: response ? response.value.trim() : '',
+  category: category ? category.value : 'Other',
+  status: 'Open'
+ });
+ saveLeads();
+ renderCRM();
+ showToast('Objection logged!', 2000);
+}
+
+function updateObjectionStatus(leadId, objIdx, newStatus){
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead || !lead.objections || !lead.objections[objIdx]) return;
+ lead.objections[objIdx].status = newStatus;
+ if(newStatus === 'Addressed' || newStatus === 'Resolved'){
+  lead.objections[objIdx].statusDate = new Date().toISOString();
+ }
+ saveLeads();
+ renderCRM();
+ showToast('Status updated to '+newStatus, 2000);
+}
+
+function updateObjectionResponse(leadId, objIdx, response){
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead || !lead.objections || !lead.objections[objIdx]) return;
+ lead.objections[objIdx].response = response;
+ lead.objections[objIdx].status = 'Addressed';
+ saveLeads();
+ renderCRM();
+ showToast('Response saved & marked Addressed', 2000);
 }
 
 function renderBulkAdd(){
