@@ -759,8 +759,9 @@ function _fixSplitNames(arr){
 }
 if(_fixSplitNames(pl2025)) try{localStorage.setItem('salestracker_pl_2025',JSON.stringify(pl2025))}catch(e){}
 if(_fixSplitNames(pl2026)) try{localStorage.setItem('salestracker_pl_2026',JSON.stringify(pl2026))}catch(e){}
-// One-time fix: normalize agent names in leads
-(function(){
+// Normalize agent names in leads (runs after data is loaded, safe — no Firebase push)
+function _fixLeadAgentNames(){
+ if(!leads || leads.length === 0) return;
  var changed = false;
  leads.forEach(function(l){
   if(l.agent){
@@ -768,8 +769,8 @@ if(_fixSplitNames(pl2026)) try{localStorage.setItem('salestracker_pl_2026',JSON.
    if(_nameFixMap[k]){ l.agent = _nameFixMap[k]; changed = true; }
   }
  });
- if(changed){ try{localStorage.setItem('salestracker_leads',JSON.stringify(leads))}catch(e){} debouncedFirebaseSync('leads'); }
-})();
+ if(changed){ try{localStorage.setItem('salestracker_leads',JSON.stringify(leads))}catch(e){} }
+}
 
 // Active year pointers
 pl = activeYear === 2026 ? pl2026 : pl2025;
@@ -6231,6 +6232,7 @@ showTab(6);
 renderCRM();
 // Firebase sync on startup
 firebaseLoadAll(function(pulled){
+ _fixLeadAgentNames(); // normalize agent names after data is loaded
  if(pulled){
   updateTopbar();
   showTab(6);
