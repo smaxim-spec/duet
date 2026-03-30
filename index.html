@@ -873,7 +873,7 @@ function saveAppts(){
 var CRM_STAGES = ['new','attempting','connected','discovery','incubator','meeting_set','quoted','app_submitted','won','lost'];
 var CRM_STAGE_LABELS = {new:'New',attempting:'Attempting',connected:'Connected',discovery:'Discovery',incubator:'Nurturing',meeting_set:'Meeting Set',quoted:'Quoted',app_submitted:'App Submitted',won:'Won',lost:'Lost'};
 var CRM_STAGE_COLORS = {new:'#3498db',attempting:'#e67e22',connected:'#f39c12',discovery:'#1abc9c',incubator:'#9b59b6',meeting_set:'var(--pri)',quoted:'#2980b9',app_submitted:'var(--amb)',won:'var(--grn)',lost:'#c0392b'};
-var CALL_OUTCOMES = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Nurturing','Lost'];
+var CALL_OUTCOMES = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Confirmed','Rescheduled','Quoted','App Submitted','Won','Nurturing','Lost'];
 var LOST_REASONS = ['Not Interested','Went Elsewhere','Did Not Qualify','Bad Timing','No Contact After Max Attempts','Price','Incorrect Number','Other'];
 var WIN_REASONS = ['Great Fit','Agent Referral Trust','Price Competitive','Urgency/Need','Existing Relationship','Product Match','Other'];
 var INCUBATOR_TEMPS = ['hot','warm','cool'];
@@ -2847,6 +2847,18 @@ function logCall(leadId, outcome, block, notes){
   lead.stage = 'lost';
   lead.lostReason = 'Bad Number';
  }
+ if(outcome === 'Confirmed' || outcome === 'Rescheduled'){
+  // Stay in current stage — just logs the call
+ }
+ if(outcome === 'Quoted'){
+  lead.stage = 'quoted';
+ }
+ if(outcome === 'App Submitted'){
+  lead.stage = 'app_submitted';
+ }
+ if(outcome === 'Won'){
+  lead.stage = 'won';
+ }
  // Legacy support for old disposition names
  if(outcome === 'Spoke - Interested') lead.stage = 'discovery';
  if(outcome === 'Spoke - Wants Info') lead.stage = 'meeting_set';
@@ -2867,7 +2879,7 @@ function logCall(leadId, outcome, block, notes){
   }
  }
  // Auto-nurture on max follow-ups for post-contact stages
- var followUpCadence = {connected:5, discovery:4, meeting_set:3, quoted:5};
+ var followUpCadence = {connected:5, discovery:5, meeting_set:6, quoted:6};
  if(followUpCadence[lead.stage]){
   var sinceStage = (lead.callLog||[]).filter(function(c){return c.date >= (lead.stageEnteredDate||lead.created)}).length;
   if(sinceStage >= followUpCadence[lead.stage]){
@@ -4760,20 +4772,45 @@ function speedDial(leadId){
  // Show persistent toast with outcome buttons
  var lead = leads.find(function(l){return l.id === leadId});
  var name = lead ? lead.name : '';
- var html = '<div style="margin-bottom:6px"><b>'+name+'</b> — What happened?</div>';
+ var stage = lead ? lead.stage : 'new';
+ var stageLabel = CRM_STAGE_LABELS[stage] || stage;
+ var html = '<div style="margin-bottom:6px"><b>'+name+'</b> — <span style="background:'+CRM_STAGE_COLORS[stage]+';color:#fff;padding:1px 6px;border-radius:4px;font-size:11px">'+stageLabel+'</span> — What happened?</div>';
  html += '<div style="margin-bottom:8px"><input id="sd_notes" placeholder="Add call notes (optional)..." style="width:100%;padding:8px 10px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff" onclick="event.stopPropagation()"></div>';
  var bs = 'color:#fff;border:none;padding:10px 14px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600';
+ // Row 1: Always show No Answer + Left VM
  html += '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">';
  html += '<button onclick="event.stopPropagation();confirmLastCall('+leadId+')" style="background:#666;'+bs+'">No Answer</button>';
  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Left VM\')" style="background:#555;'+bs+'">Left VM</button>';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Bad #\')" style="background:#999;'+bs+'">Bad #</button>';
+ if(stage === 'new' || stage === 'attempting') html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Bad #\')" style="background:#999;'+bs+'">Bad #</button>';
  html += '</div>';
+ // Row 2: Context-aware dispositions
  html += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Connected\')" style="background:#2980b9;'+bs+'">Connected</button>';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Discovery\')" style="background:var(--grn);'+bs+'">Discovery</button>';
- html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Appt Set</button>';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Nurturing\')" style="background:var(--amb);'+bs+'">Nurturing</button>';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Lost\')" style="background:#c0392b;'+bs+'">Lost</button>';
+ if(stage === 'new' || stage === 'attempting'){
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Connected\')" style="background:#2980b9;'+bs+'">Connected</button>';
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Discovery\')" style="background:var(--grn);'+bs+'">Discovery</button>';
+  html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Appt Set</button>';
+ } else if(stage === 'connected'){
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Discovery\')" style="background:var(--grn);'+bs+'">Discovery</button>';
+  html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Appt Set</button>';
+ } else if(stage === 'discovery'){
+  html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Appt Set</button>';
+ } else if(stage === 'meeting_set'){
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Confirmed\')" style="background:var(--grn);'+bs+'">Confirmed</button>';
+  html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Rescheduled</button>';
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Quoted\')" style="background:#8e44ad;'+bs+'">Quoted</button>';
+ } else if(stage === 'quoted'){
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'App Submitted\')" style="background:var(--grn);'+bs+'">App Submitted</button>';
+  html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Appt Set</button>';
+ } else if(stage === 'app_submitted'){
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Won\')" style="background:var(--grn);'+bs+'">Won</button>';
+ } else if(stage === 'incubator'){
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Connected\')" style="background:#2980b9;'+bs+'">Connected</button>';
+  html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Discovery\')" style="background:var(--grn);'+bs+'">Discovery</button>';
+  html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Appt Set</button>';
+ }
+ // Always show Nurturing + Lost (except if already there)
+ if(stage !== 'incubator' && stage !== 'lost' && stage !== 'won') html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Nurturing\')" style="background:var(--amb);'+bs+'">Nurturing</button>';
+ if(stage !== 'lost' && stage !== 'won') html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Lost\')" style="background:#c0392b;'+bs+'">Lost</button>';
  html += '</div>';
  showToast(html, 999999);
 }
