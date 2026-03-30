@@ -888,6 +888,11 @@ var MEETING_CAL_PREFIX = {
  'In-Person: Sarasota Office':'SRQ',
  'Zoom':'Zoom'
 };
+var MEETING_COLORS = {
+ 'In-Person: Venice Office':'#F1C40F',
+ 'In-Person: Sarasota Office':'#534AB7',
+ 'Zoom':'#2980B9'
+};
 var APPT_SLOTS = ['10:00','10:30','11:00','11:30','12:00','12:30','1:00','1:30','2:00','2:30','3:00'];
 var CALL_BLOCKS = [{label:'Morning (9-10am)',start:9,end:10},{label:'Afternoon (1-2pm)',start:13,end:14},{label:'Evening (5:30-6:30pm)',start:17.5,end:18.5}];
 var INTEREST_CATS = ['Life Insurance','Annuity','IUL / Universal Life','Banking / CD'];
@@ -3926,7 +3931,9 @@ function renderCallQueue(){
  if(bfTodayMeetings.length > 0){
   h += '<div style="margin-bottom:6px"><b style="color:var(--pri)">📅 Meetings Today:</b>';
   bfTodayMeetings.forEach(function(m){
-   h += ' <span style="background:var(--ptint);padding:2px 6px;border-radius:4px;margin-left:4px">'+m.time+' — '+m.clientName+' ('+m.type+')</span>';
+   var mC = MEETING_COLORS[m.type] || 'var(--pri)';
+   var mP = MEETING_CAL_PREFIX[m.type] || m.type;
+   h += ' <span style="background:'+mC+';color:#fff;padding:3px 8px;border-radius:4px;margin-left:4px;font-weight:600;font-size:11px">'+m.time+' — '+mP+' - '+m.clientName+'</span>';
   });
   h += '</div>';
  }
@@ -3935,7 +3942,9 @@ function renderCallQueue(){
  if(bfTomorrowMeetings.length > 0){
   h += '<div style="margin-bottom:6px"><b style="color:var(--muted)">📅 Tomorrow:</b>';
   bfTomorrowMeetings.forEach(function(m){
-   h += ' <span style="background:#f5f5f5;padding:2px 6px;border-radius:4px;margin-left:4px">'+m.time+' — '+m.clientName+'</span>';
+   var mC = MEETING_COLORS[m.type] || '#999';
+   var mP = MEETING_CAL_PREFIX[m.type] || m.type;
+   h += ' <span style="background:'+mC+';color:#fff;padding:3px 8px;border-radius:4px;margin-left:4px;font-weight:600;font-size:11px;opacity:0.8">'+m.time+' — '+mP+' - '+m.clientName+'</span>';
   });
   h += '</div>';
  }
@@ -4703,7 +4712,9 @@ function renderLeadDetail(){
   h += '</div>';
   h += '<button class="btn btn-pri btn-sm" onclick="scheduleAppt('+lead.id+')" style="margin-top:8px">Book & Add to Calendar</button>';
   if(lead.meetingDate){
-   h += '<span style="margin-left:10px;font-size:11px;color:var(--grn)">Booked: '+lead.meetingDate+' at '+lead.meetingTime+' — '+lead.meetingType+'</span>';
+   var mtgColor = MEETING_COLORS[lead.meetingType] || 'var(--grn)';
+   var mtgPrefix = MEETING_CAL_PREFIX[lead.meetingType] || lead.meetingType;
+   h += '<span style="margin-left:10px;font-size:11px;font-weight:600;color:#fff;background:'+mtgColor+';padding:3px 10px;border-radius:6px">'+mtgPrefix+' — '+lead.meetingDate+' at '+lead.meetingTime+'</span>';
   }
   h += '</div>';
  }
@@ -5070,11 +5081,13 @@ function renderScheduleView(){
  } else {
   h += '<table><tr><th>Date</th><th>Time</th><th>Client</th><th>Type</th><th>Interest</th><th>Location</th></tr>';
   upcoming.forEach(function(a){
+   var mColor = MEETING_COLORS[a.type] || '#999';
+   var mPrefix = MEETING_CAL_PREFIX[a.type] || a.type;
    h += '<tr>';
    h += '<td>'+a.date+'</td>';
    h += '<td>'+a.time+'</td>';
    h += '<td style="font-weight:600">'+a.clientName+'</td>';
-   h += '<td>'+a.type+'</td>';
+   h += '<td><span style="background:'+mColor+';color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">'+mPrefix+'</span></td>';
    h += '<td>'+a.interest+'</td>';
    h += '<td style="font-size:11px">'+a.location+'</td>';
    h += '</tr>';
@@ -5111,7 +5124,9 @@ function renderScheduleView(){
    h += '<div style="font-weight:600;font-size:12px;margin-bottom:6px">'+day.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+'</div>';
    if(dayAppts.length > 0){
     dayAppts.sort(function(a,b){return a.time < b.time ? -1 : 1}).forEach(function(appt){
-     h += '<div style="font-size:10px;padding:2px 4px;margin:1px 0;background:var(--ptint);border-radius:3px;border-left:3px solid var(--pri)">'+appt.time+' '+appt.clientName+'</div>';
+     var aColor = MEETING_COLORS[appt.type] || 'var(--pri)';
+     var aPrefix = MEETING_CAL_PREFIX[appt.type] || '';
+     h += '<div style="font-size:10px;padding:3px 5px;margin:2px 0;background:'+aColor+';color:#fff;border-radius:4px;font-weight:600">'+appt.time+'<br>'+aPrefix+' - '+appt.clientName+'</div>';
     });
    }
    h += '</div>';
