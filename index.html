@@ -6281,8 +6281,8 @@ setInterval(function(){
    updateTopbar();
    var activeTab = document.querySelector('.tab.active');
    if(activeTab){
-    var idx = Array.prototype.indexOf.call(activeTab.parentNode.children, activeTab);
-    showTab(idx);
+    var match = (activeTab.getAttribute('onclick')||'').match(/showTab\((\d+)\)/);
+    if(match) showTab(parseInt(match[1]));
    }
   }
  });
