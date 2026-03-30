@@ -2651,8 +2651,9 @@ function copyGmailHtml(){
 var crmView = 'queue'; // queue, all, lead, bulk, agents, schedule
 var crmFilterStage = 'all';
 var crmFilterAgent = 'all';
-var crmQueueFilter = 'all'; // all, call_today, need_morning, need_afternoon, need_evening, new, incubator, meeting
+var crmQueueFilter = 'all'; // all, call_today, need_morning, need_afternoon, need_evening, new, connected, incubator, meeting
 var crmEditId = null;
+var stageMoveNotices = []; // breadcrumb notices for stage moves
 
 function getCallCadenceStage(lead){
  if(!lead.callLog || lead.callLog.length === 0) return {stage:'new',label:'New — No calls yet',badge:'badge-pri'};
@@ -4060,6 +4061,7 @@ function renderCallQueue(){
   {v:'need_evening',label:'🌙 Call Evening ('+needEvening+')',cls:'btn-amb'},
   {v:'new',label:'🆕 New ('+stgCounts.new+')',cls:'btn-pri'},
   {v:'attempting',label:'📞 Attempting ('+stgCounts.attempting+')',cls:'btn-pri'},
+  {v:'connected',label:'🤝 Connected ('+stgCounts.connected+')',cls:'btn-pri'},
   {v:'discovery',label:'🔍 Discovery ('+stgCounts.discovery+')',cls:'btn-pri'},
   {v:'incubator',label:'🌡️ Nurturing ('+stgCounts.incubator+')',cls:'btn-pri'},
   {v:'meeting',label:'📅 Meeting Set ('+stgCounts.meeting_set+')',cls:'btn-pri'},
@@ -4097,6 +4099,7 @@ function renderCallQueue(){
  });
  else if(crmQueueFilter === 'new') filteredQueue = queueLeads.filter(function(l){return l.stage==='new'});
  else if(crmQueueFilter === 'attempting') filteredQueue = queueLeads.filter(function(l){return l.stage==='attempting'});
+ else if(crmQueueFilter === 'connected') filteredQueue = queueLeads.filter(function(l){return l.stage==='connected'});
  else if(crmQueueFilter === 'discovery') filteredQueue = queueLeads.filter(function(l){return l.stage==='discovery'});
  else if(crmQueueFilter === 'incubator') filteredQueue = queueLeads.filter(function(l){return l.stage==='incubator'});
  else if(crmQueueFilter === 'meeting') filteredQueue = queueLeads.filter(function(l){return l.stage==='meeting_set'});
@@ -4104,6 +4107,24 @@ function renderCallQueue(){
  else if(crmQueueFilter === 'app_submitted') filteredQueue = queueLeads.filter(function(l){return l.stage==='app_submitted'});
  else if(crmQueueFilter === 'won') filteredQueue = queueLeads.filter(function(l){return l.stage==='won'});
  else if(crmQueueFilter === 'lost') filteredQueue = queueLeads.filter(function(l){return l.stage==='lost'});
+
+ // Stage move breadcrumb notices
+ if(stageMoveNotices.length > 0){
+  h += '<div id="stageMoveNotices" style="margin-bottom:8px">';
+  stageMoveNotices.forEach(function(n, idx){
+   var newColor = CRM_STAGE_COLORS[n.newStage] || 'var(--pri)';
+   var newLabel = CRM_STAGE_LABELS[n.newStage] || n.newStage;
+   var oldLabel = CRM_STAGE_LABELS[n.oldStage] || n.oldStage;
+   var filterKey = n.newStage === 'meeting_set' ? 'meeting' : n.newStage;
+   h += '<div style="display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1px solid #86efac;border-left:4px solid '+newColor+';border-radius:var(--radius);padding:8px 12px;margin-bottom:4px;animation:fadeIn .3s ease">';
+   h += '<span style="font-size:13px">✅</span>';
+   h += '<span style="flex:1;font-size:12px"><b>'+n.name+'</b> → <span style="background:'+newColor+';color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">'+newLabel+'</span> <span style="color:var(--muted)">(was '+oldLabel+')</span></span>';
+   h += '<button class="btn btn-sm btn-pri" onclick="crmQueueFilter=\''+filterKey+'\';renderCRM()" style="font-size:10px;padding:2px 10px;white-space:nowrap">View →</button>';
+   h += '<button onclick="dismissStageNotice('+idx+')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:0 4px">✕</button>';
+   h += '</div>';
+  });
+  h += '</div>';
+ }
 
  // Queue list
  if(filteredQueue.length === 0){
@@ -4830,6 +4851,21 @@ function dismissToasts(){
  if(box) box.innerHTML = '';
 }
 
+function showStageMoveNotice(leadName, oldStage, newStage, leadId){
+ if(oldStage === newStage) return;
+ stageMoveNotices.push({name:leadName, oldStage:oldStage, newStage:newStage, leadId:leadId, time:Date.now()});
+ // Auto-clear notices after 15 seconds
+ setTimeout(function(){
+  stageMoveNotices = stageMoveNotices.filter(function(n){return Date.now() - n.time < 15000});
+  renderCRM();
+ }, 15000);
+}
+
+function dismissStageNotice(idx){
+ stageMoveNotices.splice(idx, 1);
+ renderCRM();
+}
+
 function getSpeedDialNotes(){
  var el = document.getElementById('sd_notes');
  return el ? el.value.trim() : '';
@@ -4851,9 +4887,11 @@ function updateLastCallAndBook(leadId){
  dismissToasts();
  var lead = leads.find(function(l){return l.id === leadId});
  if(!lead || !lead.callLog || lead.callLog.length === 0) return;
+ var prevStage = lead.stage;
  lead.callLog.pop();
  var block = getCurrentCallBlock();
  logCall(leadId, 'Appt Set', block, notes);
+ if(lead.stage !== prevStage) showStageMoveNotice(lead.name, prevStage, lead.stage, leadId);
  // Open Quick Book with this lead pre-linked
  setTimeout(function(){
   openQuickBook();
@@ -4874,17 +4912,22 @@ function updateLastCall(leadId, newOutcome){
  dismissToasts();
  var lead = leads.find(function(l){return l.id === leadId});
  if(!lead || !lead.callLog || lead.callLog.length === 0) return;
+ var prevStage = lead.stage;
  lead.callLog.pop();
  var block = getCurrentCallBlock();
  logCall(leadId, newOutcome, block, notes);
+ if(lead.stage !== prevStage) showStageMoveNotice(lead.name, prevStage, lead.stage, leadId);
  showToast(lead.name + ' → ' + newOutcome + (notes ? ' — "'+notes+'"' : ''), 3000);
 }
 
 function logCallFromDetail(leadId){
+ var lead = leads.find(function(l){return l.id === leadId});
+ var prevStage = lead ? lead.stage : '';
  var outcome = document.querySelector('#lc_outcome').value;
  var block = document.querySelector('#lc_block').value;
  var notes = document.querySelector('#lc_notes').value;
  logCall(leadId, outcome, block, notes);
+ if(lead && lead.stage !== prevStage) showStageMoveNotice(lead.name, prevStage, lead.stage, leadId);
 }
 
 function addHistoryNote(leadId){
