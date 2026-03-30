@@ -759,7 +759,7 @@ function _fixSplitNames(arr){
 }
 if(_fixSplitNames(pl2025)) try{localStorage.setItem('salestracker_pl_2025',JSON.stringify(pl2025))}catch(e){}
 if(_fixSplitNames(pl2026)) try{localStorage.setItem('salestracker_pl_2026',JSON.stringify(pl2026))}catch(e){}
-// Normalize agent names in leads (runs after data is loaded, safe — no Firebase push)
+// Normalize agent names in leads AND agent directory (runs after data is loaded, safe — no Firebase push)
 function _fixLeadAgentNames(){
  if(!leads || leads.length === 0) return;
  var changed = false;
@@ -770,6 +770,15 @@ function _fixLeadAgentNames(){
   }
  });
  if(changed){ try{localStorage.setItem('salestracker_leads',JSON.stringify(leads))}catch(e){} }
+ // Also normalize agent directory names
+ var agentChanged = false;
+ splitAgents.forEach(function(a){
+  if(a.name){
+   var k = a.name.toLowerCase().trim();
+   if(_nameFixMap[k]){ a.name = _nameFixMap[k]; agentChanged = true; }
+  }
+ });
+ if(agentChanged){ try{localStorage.setItem('salestracker_agents',JSON.stringify(splitAgents))}catch(e){} debouncedFirebaseSync('agents'); }
 }
 
 // Active year pointers
@@ -4429,7 +4438,11 @@ function renderLeadDetail(){
  h += '</select>';
  h += '<select onchange="leads.find(function(l){return l.id==='+lead.id+'}).agent=this.value;saveLeads()" '+sel+'>';
  h += '<option value="">— Agent —</option>';
- splitAgents.forEach(function(a){ h += '<option value="'+a.name+'"'+(lead.agent===a.name?' selected':'')+'>'+a.name+'</option>'; });
+ var resolvedAgent = lead.agent ? resolveAgentName(lead.agent) : '';
+ splitAgents.forEach(function(a){
+  var isMatch = (lead.agent===a.name) || (resolvedAgent===a.name) || agentNameMatch(lead.agent, a.name);
+  h += '<option value="'+a.name+'"'+(isMatch?' selected':'')+'>'+a.name+'</option>';
+ });
  h += '</select>';
  h += '<select onchange="leads.find(function(l){return l.id==='+lead.id+'}).selectedProduct=this.value;saveLeads()" '+sel+'>';
  h += '<option value="">— Product —</option>';
