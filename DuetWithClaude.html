@@ -1013,9 +1013,11 @@ function calleyPushFiltered(){
 
 function calleySyncResults(){
  var today = new Date().toISOString().substring(0,10);
+ // Also pull yesterday to handle timezone differences
+ var yesterday = new Date(Date.now() - 86400000).toISOString().substring(0,10);
  showToast('🔄 Syncing Calley call results...', 3000);
- calleyAPI('GET', 'CallDetail?page=1&fromdate=' + today + '&todate=' + today).then(function(records){
-  if(!records || !records.length){ showToast('No Calley calls found for today', 3000); return; }
+ calleyAPI('GET', 'CallDetail?page=1&fromdate=' + yesterday + '&todate=' + today).then(function(records){
+  if(!records || !records.length){ showToast('No Calley calls found', 3000); return; }
   var synced = 0;
   var skipped = 0;
   var stageMoves = [];
