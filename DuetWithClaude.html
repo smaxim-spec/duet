@@ -2665,7 +2665,7 @@ function getCallCadenceStage(lead){
  if(spokeEntries.length > 0) return null; // stage managed manually after contact
 
  // 15-call cadence: exhausted
- if(totalCalls >= 15) return {stage:'exhausted',label:'15/15 Attempts — Auto-Lost',badge:'cb-day7'};
+ if(totalCalls >= 10) return {stage:'exhausted',label:'10/10 Attempts — Auto-Lost',badge:'cb-day7'};
 
  // Group calls by date
  var callDates = {};
@@ -4052,8 +4052,8 @@ function renderCallQueue(){
    var hA = todayLog.some(function(c){return c.block==='afternoon'});
    var hE = todayLog.some(function(c){return c.block==='evening'});
    if(!hM) needMorning++;
-   else if(!hA) needAfternoon++;
-   else if(!hE) needEvening++;
+   if(!hA) needAfternoon++;
+   if(!hE) needEvening++;
   }
  });
 
@@ -4090,18 +4090,11 @@ function renderCallQueue(){
  });
  else if(crmQueueFilter === 'need_afternoon') filteredQueue = queueLeads.filter(function(l){
   if(l.stage!=='new'&&l.stage!=='attempting') return false;
-  var todayLog = (l.callLog||[]).filter(function(c){return c.date.substring(0,10)===today});
-  var hadMorning = todayLog.some(function(c){return c.block==='morning'});
-  var hadAfternoon = todayLog.some(function(c){return c.block==='afternoon'});
-  return hadMorning && !hadAfternoon;
+  return !(l.callLog||[]).some(function(c){return c.date.substring(0,10)===today&&c.block==='afternoon'});
  });
  else if(crmQueueFilter === 'need_evening') filteredQueue = queueLeads.filter(function(l){
   if(l.stage!=='new'&&l.stage!=='attempting') return false;
-  var todayLog = (l.callLog||[]).filter(function(c){return c.date.substring(0,10)===today});
-  var hadMorning = todayLog.some(function(c){return c.block==='morning'});
-  var hadAfternoon = todayLog.some(function(c){return c.block==='afternoon'});
-  var hadEvening = todayLog.some(function(c){return c.block==='evening'});
-  return hadMorning && hadAfternoon && !hadEvening;
+  return !(l.callLog||[]).some(function(c){return c.date.substring(0,10)===today&&c.block==='evening'});
  });
  else if(crmQueueFilter === 'new') filteredQueue = queueLeads.filter(function(l){return l.stage==='new'});
  else if(crmQueueFilter === 'attempting') filteredQueue = queueLeads.filter(function(l){return l.stage==='attempting'});
@@ -4167,7 +4160,7 @@ function renderCallQueue(){
    // Row 4: Calls + last call with block badge
    if(totalCalls > 0){
     var callLabel = totalCalls+' call'+(totalCalls>1?'s':'');
-    if(lead.stage === 'attempting' || lead.stage === 'new') callLabel = totalCalls+'/15 attempts';
+    if(lead.stage === 'attempting' || lead.stage === 'new') callLabel = totalCalls+'/10 attempts';
     else if(fu) callLabel = fu.count+'/'+fu.max+' follow-ups';
     var lastBlock = '';
     if(lead.callLog && lead.callLog.length > 0){
