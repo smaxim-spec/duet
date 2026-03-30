@@ -4717,6 +4717,7 @@ function speedDial(leadId){
  var lead = leads.find(function(l){return l.id === leadId});
  var name = lead ? lead.name : '';
  var html = '<div style="margin-bottom:6px"><b>'+name+'</b> — logged as No Answer</div>';
+ html += '<div style="margin-bottom:8px"><input id="sd_notes" placeholder="Add call notes (optional)..." style="width:100%;padding:8px 10px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff" onclick="event.stopPropagation()"></div>';
  html += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
  var bs = 'color:#fff;border:none;padding:10px 14px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600';
  html += '<button onclick="event.stopPropagation();confirmLastCall('+leadId+')" style="background:#666;'+bs+'">No Answer</button>';
@@ -4734,19 +4735,30 @@ function dismissToasts(){
  if(box) box.innerHTML = '';
 }
 
+function getSpeedDialNotes(){
+ var el = document.getElementById('sd_notes');
+ return el ? el.value.trim() : '';
+}
+
 function confirmLastCall(leadId){
+ var notes = getSpeedDialNotes();
  dismissToasts();
  var lead = leads.find(function(l){return l.id === leadId});
+ if(lead && lead.callLog && lead.callLog.length > 0 && notes){
+  lead.callLog[lead.callLog.length-1].notes = notes;
+  saveLeads();
+ }
  showToast((lead?lead.name:'')+' — No Answer confirmed', 2000);
 }
 
 function updateLastCallAndBook(leadId){
+ var notes = getSpeedDialNotes();
  dismissToasts();
  var lead = leads.find(function(l){return l.id === leadId});
  if(!lead || !lead.callLog || lead.callLog.length === 0) return;
  lead.callLog.pop();
  var block = getCurrentCallBlock();
- logCall(leadId, 'Spoke - Wants Info', block, '');
+ logCall(leadId, 'Spoke - Wants Info', block, notes);
  // Open Quick Book with this lead pre-linked
  setTimeout(function(){
   openQuickBook();
@@ -4763,13 +4775,14 @@ function updateLastCallAndBook(leadId){
 }
 
 function updateLastCall(leadId, newOutcome){
+ var notes = getSpeedDialNotes();
  dismissToasts();
  var lead = leads.find(function(l){return l.id === leadId});
  if(!lead || !lead.callLog || lead.callLog.length === 0) return;
  lead.callLog.pop();
  var block = getCurrentCallBlock();
- logCall(leadId, newOutcome, block, '');
- showToast(lead.name + ' → ' + newOutcome, 3000);
+ logCall(leadId, newOutcome, block, notes);
+ showToast(lead.name + ' → ' + newOutcome + (notes ? ' — "'+notes+'"' : ''), 3000);
 }
 
 function logCallFromDetail(leadId){
