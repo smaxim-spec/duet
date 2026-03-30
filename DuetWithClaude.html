@@ -123,6 +123,7 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 .cb-morning{background:#fff3cd;color:#856404}
 .cb-afternoon{background:#d1ecf1;color:#0c5460}
 .cb-evening{background:#d4edda;color:#155724}
+.cb-meeting{background:#e8daef;color:#6c3483}
 .cb-nextday{background:#e2e3e5;color:#383d41}
 .cb-day5{background:#fff3cd;color:#856404}
 .cb-day7{background:#f8d7da;color:#721c24}
@@ -2704,20 +2705,20 @@ function getCallCadenceStage(lead){
   var lastCallDate = log[log.length-1].date.substring(0,10);
   var daysSinceLast = Math.floor((now - new Date(lastCallDate+'T00:00:00')) / 86400000);
   if(daysSinceLast < waitDays){
-   return {stage:'waiting',label:'Attempt '+totalCalls+'/15 — Wait '+(waitDays-daysSinceLast)+' day'+(waitDays-daysSinceLast>1?'s':'')+' before next round',badge:'cb-nextday'};
+   return {stage:'waiting',label:'Attempt '+totalCalls+'/10 — Wait '+(waitDays-daysSinceLast)+' day'+(waitDays-daysSinceLast>1?'s':'')+' before next round',badge:'cb-nextday'};
   }
   // Ready for next round
-  if(!hasMorning) return {stage:'morning',label:'Attempt '+(totalCalls+1)+'/15 — '+roundLabel+' Morning (9-10am)',badge:'cb-morning'};
-  if(!hasAfternoon) return {stage:'afternoon',label:'Attempt '+(totalCalls+1)+'/15 — '+roundLabel+' Afternoon (1-2pm)',badge:'cb-afternoon'};
-  if(!hasEvening) return {stage:'evening',label:'Attempt '+(totalCalls+1)+'/15 — '+roundLabel+' Evening (5:30-6:30pm)',badge:'cb-evening'};
-  return {stage:'waiting',label:'Attempt '+totalCalls+'/15 — Done today, next round soon',badge:'cb-nextday'};
+  if(!hasMorning) return {stage:'morning',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Morning (9-10am)',badge:'cb-morning'};
+  if(!hasAfternoon) return {stage:'afternoon',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Afternoon (1-2pm)',badge:'cb-afternoon'};
+  if(!hasEvening) return {stage:'evening',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Evening (5:30-6:30pm)',badge:'cb-evening'};
+  return {stage:'waiting',label:'Attempt '+totalCalls+'/10 — Done today, next round soon',badge:'cb-nextday'};
  }
 
  // Still have calls to make today
- if(!hasMorning) return {stage:'morning',label:'Attempt '+(totalCalls+1)+'/15 — '+roundLabel+' Morning (9-10am)',badge:'cb-morning'};
- if(!hasAfternoon) return {stage:'afternoon',label:'Attempt '+(totalCalls+1)+'/15 — '+roundLabel+' Afternoon (1-2pm)',badge:'cb-afternoon'};
- if(!hasEvening) return {stage:'evening',label:'Attempt '+(totalCalls+1)+'/15 — '+roundLabel+' Evening (5:30-6:30pm)',badge:'cb-evening'};
- return {stage:'waiting',label:'Attempt '+totalCalls+'/15 — Done today',badge:'cb-nextday'};
+ if(!hasMorning) return {stage:'morning',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Morning (9-10am)',badge:'cb-morning'};
+ if(!hasAfternoon) return {stage:'afternoon',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Afternoon (1-2pm)',badge:'cb-afternoon'};
+ if(!hasEvening) return {stage:'evening',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Evening (5:30-6:30pm)',badge:'cb-evening'};
+ return {stage:'waiting',label:'Attempt '+totalCalls+'/10 — Done today',badge:'cb-nextday'};
 }
 
 // Follow-up cadence config: {interval in days, max follow-ups}
@@ -2763,17 +2764,17 @@ function getLeadPriority(lead){
   return fu && fu.due ? 2 : 51;
  }
  if(lead.stage === 'new') return 3;
+ if(lead.stage === 'discovery'){
+  return fu && fu.due ? 4 : 52;
+ }
+ if(lead.stage === 'connected'){
+  return fu && fu.due ? 5 : 53;
+ }
  if(lead.stage === 'attempting'){
   var cad = getCallCadenceStage(lead);
   if(!cad) return 60;
-  if(cad.stage === 'morning' || cad.stage === 'afternoon' || cad.stage === 'evening') return 4;
+  if(cad.stage === 'morning' || cad.stage === 'afternoon' || cad.stage === 'evening') return 6;
   return 60;
- }
- if(lead.stage === 'connected'){
-  return fu && fu.due ? 5 : 52;
- }
- if(lead.stage === 'discovery'){
-  return fu && fu.due ? 6 : 53;
  }
  if(lead.stage === 'incubator'){
   var temp = lead.incubatorTemp || 'cool';
@@ -2869,13 +2870,13 @@ function logCall(leadId, outcome, block, notes){
  if(lead.stage === 'new' && outcome !== 'Spoke - Interested' && outcome !== 'Spoke - Wants Info' && outcome !== 'Spoke - Not Ready' && outcome !== 'Spoke - Not Interested' && outcome !== 'Incorrect Number'){
   if((lead.callLog||[]).length >= 3) lead.stage = 'attempting';
  }
- // Auto-lost after 15 attempts with no contact
- if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 15){
+ // Auto-lost after 10 attempts with no contact
+ if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 10){
   var anySpoke = (lead.callLog||[]).some(function(c){return c.outcome && c.outcome.indexOf('Spoke')===0});
   if(!anySpoke){
    lead.stage = 'lost';
    lead.lostReason = 'No Contact After Max Attempts';
-   showToast(lead.name + ' auto-marked Lost — 15 attempts with no contact.', 6000);
+   showToast(lead.name + ' auto-marked Lost — 10 attempts with no contact.', 6000);
   }
  }
  // Auto-nurture on max follow-ups for post-contact stages
@@ -3145,6 +3146,15 @@ function scheduleAppt(leadId){
   notes: ''
  });
  saveAppts();
+
+ // Log meeting to history
+ if(!lead.callLog) lead.callLog = [];
+ lead.callLog.push({
+  date: new Date().toISOString(),
+  outcome: 'Appt Set',
+  block: 'meeting',
+  notes: '📅 Meeting scheduled: ' + dateEl.value + ' at ' + time + ' — ' + type + (loc ? ' (' + loc + ')' : '')
+ });
  saveLeads();
 
  // Open Google Calendar
@@ -4554,9 +4564,9 @@ function renderLeadDetail(){
    var d = new Date(item.date);
    var dateStr = d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
    if(item.type === 'call'){
-    var blockBadge = item.block === 'morning' ? 'cb-morning' : item.block === 'afternoon' ? 'cb-afternoon' : 'cb-evening';
+    var blockBadge = item.block === 'morning' ? 'cb-morning' : item.block === 'afternoon' ? 'cb-afternoon' : item.block === 'meeting' ? 'cb-meeting' : 'cb-evening';
     h += '<div class="call-log-entry">';
-    h += '<span class="cadence-badge '+blockBadge+'" style="flex-shrink:0">'+item.block+'</span>';
+    h += '<span class="cadence-badge '+blockBadge+'" style="flex-shrink:0">'+(item.block === 'meeting' ? '📅 meeting' : item.block)+'</span>';
     h += '<span>'+dateStr+'</span>';
     h += '<span style="font-weight:600">'+item.outcome+'</span>';
     if(item.notes) h += '<span style="color:var(--muted)">'+item.notes+'</span>';
