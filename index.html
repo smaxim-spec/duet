@@ -864,7 +864,7 @@ function saveAppts(){
 var CRM_STAGES = ['new','attempting','connected','discovery','incubator','meeting_set','quoted','app_submitted','won','lost'];
 var CRM_STAGE_LABELS = {new:'New',attempting:'Attempting',connected:'Connected',discovery:'Discovery',incubator:'Nurturing',meeting_set:'Meeting Set',quoted:'Quoted',app_submitted:'App Submitted',won:'Won',lost:'Lost'};
 var CRM_STAGE_COLORS = {new:'#3498db',attempting:'#e67e22',connected:'#f39c12',discovery:'#1abc9c',incubator:'#9b59b6',meeting_set:'var(--pri)',quoted:'#2980b9',app_submitted:'var(--amb)',won:'var(--grn)',lost:'#c0392b'};
-var CALL_OUTCOMES = ['No Answer','Left VM','Spoke - Interested','Spoke - Not Ready','Spoke - Not Interested','Spoke - Wants Info','Incorrect Number'];
+var CALL_OUTCOMES = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Nurturing','Lost'];
 var LOST_REASONS = ['Not Interested','Went Elsewhere','Did Not Qualify','Bad Timing','No Contact After Max Attempts','Price','Incorrect Number','Other'];
 var WIN_REASONS = ['Great Fit','Agent Referral Trust','Price Competitive','Urgency/Need','Existing Relationship','Product Match','Other'];
 var INCUBATOR_TEMPS = ['hot','warm','cool'];
@@ -2806,20 +2806,34 @@ function logCall(leadId, outcome, block, notes){
   notes: notes || ''
  });
  var prevStage = lead.stage;
- // Auto-advance stage if spoke (from new/attempting/connected)
- if(outcome.indexOf('Spoke') === 0 && (lead.stage === 'attempting' || lead.stage === 'new' || lead.stage === 'connected')){
-  if(outcome === 'Spoke - Interested') lead.stage = 'discovery';
-  else if(outcome === 'Spoke - Wants Info') lead.stage = 'meeting_set';
-  else if(outcome === 'Spoke - Not Ready') lead.stage = 'incubator';
-  else if(outcome === 'Spoke - Not Interested') lead.stage = 'lost';
-  else lead.stage = 'discovery';
-  if(lead.stage === 'incubator' && !lead.incubatorTemp) lead.incubatorTemp = 'warm';
-  if(lead.stage === 'lost' && !lead.lostReason) lead.lostReason = 'Not Interested';
+ // Stage transitions based on disposition
+ if(outcome === 'Connected' && (lead.stage === 'new' || lead.stage === 'attempting')){
+  lead.stage = 'connected';
  }
- if(outcome === 'Incorrect Number'){
+ if(outcome === 'Discovery' && (lead.stage === 'new' || lead.stage === 'attempting' || lead.stage === 'connected')){
+  lead.stage = 'discovery';
+ }
+ if(outcome === 'Appt Set'){
+  lead.stage = 'meeting_set';
+ }
+ if(outcome === 'Nurturing'){
+  lead.stage = 'incubator';
+  if(!lead.incubatorTemp) lead.incubatorTemp = 'warm';
+ }
+ if(outcome === 'Lost'){
   lead.stage = 'lost';
-  lead.lostReason = 'Incorrect Number';
+  if(!lead.lostReason) lead.lostReason = 'Not Interested';
  }
+ if(outcome === 'Bad #'){
+  lead.stage = 'lost';
+  lead.lostReason = 'Bad Number';
+ }
+ // Legacy support for old disposition names
+ if(outcome === 'Spoke - Interested') lead.stage = 'discovery';
+ if(outcome === 'Spoke - Wants Info') lead.stage = 'meeting_set';
+ if(outcome === 'Spoke - Not Ready'){ lead.stage = 'incubator'; if(!lead.incubatorTemp) lead.incubatorTemp = 'warm'; }
+ if(outcome === 'Spoke - Not Interested'){ lead.stage = 'lost'; if(!lead.lostReason) lead.lostReason = 'Not Interested'; }
+ if(outcome === 'Incorrect Number'){ lead.stage = 'lost'; lead.lostReason = 'Bad Number'; }
  // Move new → attempting only after 3 logged calls (morning, afternoon, evening cycle)
  if(lead.stage === 'new' && outcome !== 'Spoke - Interested' && outcome !== 'Spoke - Wants Info' && outcome !== 'Spoke - Not Ready' && outcome !== 'Spoke - Not Interested' && outcome !== 'Incorrect Number'){
   if((lead.callLog||[]).length >= 3) lead.stage = 'attempting';
@@ -4716,16 +4730,20 @@ function speedDial(leadId){
  // Show persistent toast with outcome buttons
  var lead = leads.find(function(l){return l.id === leadId});
  var name = lead ? lead.name : '';
- var html = '<div style="margin-bottom:6px"><b>'+name+'</b> — logged as No Answer</div>';
+ var html = '<div style="margin-bottom:6px"><b>'+name+'</b> — What happened?</div>';
  html += '<div style="margin-bottom:8px"><input id="sd_notes" placeholder="Add call notes (optional)..." style="width:100%;padding:8px 10px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff" onclick="event.stopPropagation()"></div>';
- html += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
  var bs = 'color:#fff;border:none;padding:10px 14px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600';
+ html += '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">';
  html += '<button onclick="event.stopPropagation();confirmLastCall('+leadId+')" style="background:#666;'+bs+'">No Answer</button>';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Left VM\')" style="background:#444;'+bs+'">Left VM</button>';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Spoke - Interested\')" style="background:var(--grn);'+bs+'">Interested</button>';
- html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Meeting Set</button>';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Spoke - Not Ready\')" style="background:var(--amb);'+bs+'">Not Ready</button>';
- html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Spoke - Not Interested\')" style="background:#c0392b;'+bs+'">Not Interested</button>';
+ html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Left VM\')" style="background:#555;'+bs+'">Left VM</button>';
+ html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Bad #\')" style="background:#999;'+bs+'">Bad #</button>';
+ html += '</div>';
+ html += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
+ html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Connected\')" style="background:#2980b9;'+bs+'">Connected</button>';
+ html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Discovery\')" style="background:var(--grn);'+bs+'">Discovery</button>';
+ html += '<button onclick="event.stopPropagation();updateLastCallAndBook('+leadId+')" style="background:var(--pri);'+bs+'">Appt Set</button>';
+ html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Nurturing\')" style="background:var(--amb);'+bs+'">Nurturing</button>';
+ html += '<button onclick="event.stopPropagation();updateLastCall('+leadId+',\'Lost\')" style="background:#c0392b;'+bs+'">Lost</button>';
  html += '</div>';
  showToast(html, 999999);
 }
@@ -4758,7 +4776,7 @@ function updateLastCallAndBook(leadId){
  if(!lead || !lead.callLog || lead.callLog.length === 0) return;
  lead.callLog.pop();
  var block = getCurrentCallBlock();
- logCall(leadId, 'Spoke - Wants Info', block, notes);
+ logCall(leadId, 'Appt Set', block, notes);
  // Open Quick Book with this lead pre-linked
  setTimeout(function(){
   openQuickBook();
