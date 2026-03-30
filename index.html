@@ -124,6 +124,7 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 .cb-afternoon{background:#d1ecf1;color:#0c5460}
 .cb-evening{background:#d4edda;color:#155724}
 .cb-meeting{background:#e8daef;color:#6c3483}
+.cb-calley{background:#ff6b35;color:#fff}
 .cb-nextday{background:#e2e3e5;color:#383d41}
 .cb-day5{background:#fff3cd;color:#856404}
 .cb-day7{background:#f8d7da;color:#721c24}
@@ -897,6 +898,185 @@ var MEETING_COLORS = {
 var APPT_SLOTS = ['10:00','10:30','11:00','11:30','12:00','12:30','1:00','1:30','2:00','2:30','3:00'];
 var CALL_BLOCKS = [{label:'Morning (9-10am)',start:9,end:10},{label:'Afternoon (1-2pm)',start:13,end:14},{label:'Evening (5:30-6:30pm)',start:17.5,end:18.5}];
 var INTEREST_CATS = ['Life Insurance','Annuity','IUL / Universal Life','Banking / CD'];
+
+// ── CALLEY INTEGRATION ──
+var CALLEY_PROXY = '/calley-proxy'; // routes through duet_server.py proxy
+var CALLEY_DEFAULT_LIST_ID = 'mcl-E99A0084-F93E-4D5F-80AC-1F4F9A99FEAA'; // "Duet" list
+var CALLEY_DISPOSITION_MAP = {
+ 'No Answer':'No Answer', 'Left VM':'Left VM', 'Connected':'Connected',
+ 'Discovery':'Discovery', 'Appt Set':'Appt Set', 'Quoted':'Quoted',
+ 'Nuturing':'Nurturing', 'Bad Number':'Bad #', 'Lost':'Lost'
+};
+// Reverse map: Duet outcome → Calley feedback name
+var DUET_TO_CALLEY_MAP = {
+ 'No Answer':'No Answer', 'Left VM':'Left VM', 'Connected':'Connected',
+ 'Discovery':'Discovery', 'Appt Set':'Appt Set', 'Quoted':'Quoted',
+ 'Nurturing':'Nuturing', 'Bad #':'Bad Number', 'Lost':'Lost'
+};
+
+function getCalleyToken(){
+ return localStorage.getItem('calley_auth_token') || '';
+}
+function setCalleyToken(token){
+ localStorage.setItem('calley_auth_token', token);
+}
+
+function calleyAPI(method, endpoint, body){
+ return new Promise(function(resolve, reject){
+  var token = getCalleyToken();
+  if(!token){ reject('No Calley API token set'); return; }
+  var xhr = new XMLHttpRequest();
+  xhr.open(method, CALLEY_PROXY + '/' + endpoint, true);
+  xhr.setRequestHeader('authToken', token);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.onload = function(){
+   if(xhr.status >= 200 && xhr.status < 300){
+    try { resolve(JSON.parse(xhr.responseText)); }
+    catch(e){ resolve(xhr.responseText); }
+   } else {
+    reject('Calley API error: ' + xhr.status + ' ' + xhr.responseText);
+   }
+  };
+  xhr.onerror = function(){ reject('Calley API network error'); };
+  xhr.send(body ? JSON.stringify(body) : null);
+ });
+}
+
+function calleyTestConnection(){
+ showToast('Testing Calley connection...', 3000);
+ calleyAPI('GET', 'CallingLists').then(function(lists){
+  showToast('✅ Calley connected! Found ' + lists.length + ' list(s): ' + lists.map(function(l){return l.listName}).join(', '), 5000);
+ }).catch(function(err){
+  showToast('❌ Calley connection failed: ' + err, 5000);
+ });
+}
+
+function calleyPushLead(leadId){
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead){ showToast('Lead not found', 3000); return; }
+ var listId = localStorage.getItem('calley_list_id') || CALLEY_DEFAULT_LIST_ID;
+ var notes = [lead.interest, lead.source, lead.agent ? 'Agent: '+lead.agent : ''].filter(Boolean).join(' | ');
+ calleyAPI('POST', 'PushPro', {
+  Mobile: lead.phone,
+  ListId: listId,
+  Notes: notes,
+  Name: lead.name
+ }).then(function(resp){
+  lead.calleyPushed = true;
+  lead.calleyPushedDate = new Date().toISOString();
+  saveLeads();
+  showToast('📱 ' + lead.name + ' pushed to Calley', 3000);
+  renderCRM();
+ }).catch(function(err){
+  showToast('❌ Push failed: ' + err, 5000);
+ });
+}
+
+function calleyPushFiltered(){
+ var filterEl = document.getElementById('calleyPushCount');
+ if(!filterEl) return;
+ var pushLeads = JSON.parse(filterEl.dataset.leads || '[]');
+ if(pushLeads.length === 0){ showToast('No leads to push', 3000); return; }
+ var listId = localStorage.getItem('calley_list_id') || CALLEY_DEFAULT_LIST_ID;
+ var pushed = 0;
+ var failed = 0;
+ var total = pushLeads.length;
+ showToast('📱 Pushing ' + total + ' leads to Calley...', 5000);
+
+ function pushNext(idx){
+  if(idx >= pushLeads.length){
+   showToast('✅ Calley push complete: ' + pushed + ' sent' + (failed > 0 ? ', ' + failed + ' failed' : ''), 5000);
+   renderCRM();
+   return;
+  }
+  var lead = leads.find(function(l){return l.id === pushLeads[idx]});
+  if(!lead){ pushNext(idx+1); return; }
+  var notes = [lead.interest, lead.source, lead.agent ? 'Agent: '+lead.agent : ''].filter(Boolean).join(' | ');
+  calleyAPI('POST', 'PushPro', {
+   Mobile: lead.phone,
+   ListId: listId,
+   Notes: notes,
+   Name: lead.name
+  }).then(function(){
+   lead.calleyPushed = true;
+   lead.calleyPushedDate = new Date().toISOString();
+   pushed++;
+   saveLeads();
+   pushNext(idx+1);
+  }).catch(function(){
+   failed++;
+   pushNext(idx+1);
+  });
+ }
+ pushNext(0);
+}
+
+function calleySyncResults(){
+ var today = new Date().toISOString().substring(0,10);
+ showToast('🔄 Syncing Calley call results...', 3000);
+ calleyAPI('GET', 'CallDetail?page=1&fromdate=' + today + '&todate=' + today).then(function(records){
+  if(!records || !records.length){ showToast('No Calley calls found for today', 3000); return; }
+  var synced = 0;
+  var skipped = 0;
+  var stageMoves = [];
+  records.forEach(function(rec){
+   // Match by phone number (strip non-digits)
+   var calleyPhone = (rec.mobile||'').replace(/\D/g,'');
+   if(calleyPhone.length > 10) calleyPhone = calleyPhone.slice(-10);
+   var lead = leads.find(function(l){
+    var duetPhone = (l.phone||'').replace(/\D/g,'');
+    if(duetPhone.length > 10) duetPhone = duetPhone.slice(-10);
+    return duetPhone === calleyPhone;
+   });
+   if(!lead){ skipped++; return; }
+   // Check if already synced (by matching dateOfCall)
+   var calleyDate = rec.dateOfCall || '';
+   var alreadySynced = (lead.callLog||[]).some(function(c){
+    return c.calleyId === rec.id;
+   });
+   if(alreadySynced){ skipped++; return; }
+   // Map disposition
+   var calleyFeedback = rec.feedback || 'No Answer';
+   var duetOutcome = CALLEY_DISPOSITION_MAP[calleyFeedback] || 'No Answer';
+   var prevStage = lead.stage;
+   // Log the call
+   if(!lead.callLog) lead.callLog = [];
+   lead.callLog.push({
+    date: new Date(calleyDate.replace(/(\d{2}) (\w{3}) (\d{4}) (\d{2}:\d{2}:\d{2})/, '$2 $1, $3 $4')).toISOString() || new Date().toISOString(),
+    outcome: duetOutcome,
+    block: 'calley',
+    notes: '📱 Calley sync — ' + (rec.callDuration||'0:00') + (rec.callNotes ? ' — '+rec.callNotes : ''),
+    calleyId: rec.id
+   });
+   // Apply stage transition (same logic as logCall)
+   if(duetOutcome === 'Connected' && (lead.stage === 'new' || lead.stage === 'attempting')) lead.stage = 'connected';
+   if(duetOutcome === 'Discovery' && (lead.stage === 'new' || lead.stage === 'attempting' || lead.stage === 'connected')) lead.stage = 'discovery';
+   if(duetOutcome === 'Appt Set') lead.stage = 'meeting_set';
+   if(duetOutcome === 'Nurturing'){ lead.stage = 'incubator'; if(!lead.incubatorTemp) lead.incubatorTemp = 'warm'; }
+   if(duetOutcome === 'Lost'){ lead.stage = 'lost'; if(!lead.lostReason) lead.lostReason = 'Not Interested'; }
+   if(duetOutcome === 'Bad #'){ lead.stage = 'lost'; lead.lostReason = 'Bad Number'; }
+   if(duetOutcome === 'Quoted') lead.stage = 'quoted';
+   if(lead.stage === 'new' && (duetOutcome === 'No Answer' || duetOutcome === 'Left VM')){
+    if((lead.callLog||[]).length >= 3) lead.stage = 'attempting';
+   }
+   if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 10){
+    var anySpoke = (lead.callLog||[]).some(function(c){return c.outcome==='Connected'||c.outcome==='Discovery'||c.outcome==='Appt Set'});
+    if(!anySpoke){ lead.stage = 'lost'; lead.lostReason = 'No Contact After Max Attempts'; }
+   }
+   if(lead.stage !== prevStage) lead.stageEnteredDate = new Date().toISOString();
+   if(lead.stage !== prevStage) stageMoves.push(lead.name + ': ' + CRM_STAGE_LABELS[prevStage] + ' → ' + CRM_STAGE_LABELS[lead.stage]);
+   synced++;
+  });
+  saveLeads();
+  localStorage.setItem('calley_last_sync', new Date().toISOString());
+  var msg = '✅ Calley sync: ' + synced + ' calls imported, ' + skipped + ' skipped';
+  if(stageMoves.length > 0) msg += '<br>' + stageMoves.join('<br>');
+  showToast(msg, 8000);
+  renderCRM();
+ }).catch(function(err){
+  showToast('❌ Calley sync failed: ' + err, 5000);
+ });
+}
 
 // Needs analysis question frameworks
 var NA_QUESTIONS = {
@@ -1977,6 +2157,13 @@ function openSettingsModal(){
  h += '<div style="display:flex;gap:6px">';
  h += '<button class="btn btn-outline btn-sm" onclick="resetDemo()" style="color:#c0392b;border-color:#c0392b">Reset to Demo Data</button>';
  h += '</div>';
+ h += '<hr style="margin:16px 0;border:none;border-top:1px solid #eee">';
+ h += '<h4 style="color:#ff6b35">📱 Calley Integration</h4>';
+ h += '<div class="form-row">';
+ h += '<div class="form-group"><label>Calley API Token</label><input id="s_calley_token" type="password" value="'+getCalleyToken()+'" placeholder="Paste your authToken here" style="width:280px"></div>';
+ h += '<div class="form-group"><label>&nbsp;</label><button class="btn btn-sm" onclick="setCalleyToken(document.getElementById(\'s_calley_token\').value);calleyTestConnection()" style="background:#ff6b35;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer">Test Connection</button></div>';
+ h += '</div>';
+ h += '<div style="font-size:10px;color:var(--muted);margin-top:4px">Get your token from the Calley Web Panel → Settings → API. Stored locally, never sent to Firebase.</div>';
  h += '<hr style="margin:16px 0;border:none;border-top:1px solid #eee">';
  h += '<div style="display:flex;justify-content:space-between;align-items:center">';
  h += '<div style="font-size:11px;color:var(--muted)"><strong style="color:var(--pri)">'+APP_VERSION+'</strong> &middot; Updated '+APP_BUILD_DATE+'</div>';
@@ -4081,6 +4268,21 @@ function renderCallQueue(){
  });
  h += '</div>';
 
+ // Calley integration bar
+ if(getCalleyToken()){
+  var unpushedLeads = queueLeads.filter(function(l){return !l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'});
+  var unpushedCount = unpushedLeads.length;
+  h += '<div class="card" style="padding:6px 12px;margin-bottom:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,#fff5f0,#fff0e6);border:1px solid #ff6b35">';
+  h += '<span style="font-size:13px">📱</span>';
+  h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley</span>';
+  h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" id="calleyPushBtn">Push ' + unpushedCount + ' leads to Calley</button>';
+  h += '<span id="calleyPushCount" data-leads=\''+JSON.stringify(unpushedLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
+  h += '<button class="btn btn-sm" onclick="calleySyncResults()" style="background:#2980b9;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Sync Results</button>';
+  var lastSync = localStorage.getItem('calley_last_sync');
+  if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
+  h += '</div>';
+ }
+
  // Apply filter
  var filteredQueue = queueLeads;
  if(crmQueueFilter === 'call_today') filteredQueue = queueLeads; // all queue leads need action today
@@ -4144,7 +4346,7 @@ function renderCallQueue(){
    h += '<div onclick="crmEditId='+lead.id+';crmView=\'lead\';renderCRM()" style="cursor:pointer;border-left:4px solid '+borderColor+';background:var(--card);border-radius:0 var(--radius) var(--radius) 0;padding:8px 10px;box-shadow:var(--shadow);display:flex;flex-direction:column;justify-content:space-between;min-height:120px">';
    // Row 1: Name + stage badge
    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
-   h += '<div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px" title="'+lead.name+'">'+lead.name+'</div>';
+   h += '<div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px" title="'+lead.name+'">'+(lead.calleyPushed?'<span title="In Calley" style="font-size:10px">📱</span> ':'')+lead.name+'</div>';
    if(cadence){
     h += '<span class="cadence-badge '+cadence.badge+'" style="font-size:9px;padding:1px 5px">'+cadence.label+'</span>';
    } else if(fu){
@@ -4484,6 +4686,13 @@ function renderLeadDetail(){
  }
  h += '<div style="margin-left:auto;display:flex;gap:4px">';
  h += '<button class="btn btn-sm btn-pri" onclick="document.getElementById(\'sched_section_'+lead.id+'\').scrollIntoView({behavior:\'smooth\'})" style="padding:2px 8px;font-size:10px">📅 Schedule</button>';
+ if(getCalleyToken()){
+  if(lead.calleyPushed){
+   h += '<span style="font-size:9px;color:#ff6b35;padding:2px 6px;background:#fff5f0;border-radius:4px;border:1px solid #ff6b35">📱 In Calley</span>';
+  } else {
+   h += '<button class="btn btn-sm" onclick="calleyPushLead('+lead.id+')" style="background:#ff6b35;color:#fff;border:none;padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer">📱 Push to Calley</button>';
+  }
+ }
  h += '</div></div>';
  // Row 2: Inline dropdowns — interest, source, agent, product
  h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">';
@@ -4584,9 +4793,9 @@ function renderLeadDetail(){
    var d = new Date(item.date);
    var dateStr = d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
    if(item.type === 'call'){
-    var blockBadge = item.block === 'morning' ? 'cb-morning' : item.block === 'afternoon' ? 'cb-afternoon' : item.block === 'meeting' ? 'cb-meeting' : 'cb-evening';
+    var blockBadge = item.block === 'morning' ? 'cb-morning' : item.block === 'afternoon' ? 'cb-afternoon' : item.block === 'meeting' ? 'cb-meeting' : item.block === 'calley' ? 'cb-calley' : 'cb-evening';
     h += '<div class="call-log-entry">';
-    h += '<span class="cadence-badge '+blockBadge+'" style="flex-shrink:0">'+(item.block === 'meeting' ? '📅 meeting' : item.block)+'</span>';
+    h += '<span class="cadence-badge '+blockBadge+'" style="flex-shrink:0">'+(item.block === 'meeting' ? '📅 meeting' : item.block === 'calley' ? '📱 calley' : item.block)+'</span>';
     h += '<span>'+dateStr+'</span>';
     h += '<span style="font-weight:600">'+item.outcome+'</span>';
     if(item.notes) h += '<span style="color:var(--muted)">'+item.notes+'</span>';
