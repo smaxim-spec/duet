@@ -4268,21 +4268,6 @@ function renderCallQueue(){
  });
  h += '</div>';
 
- // Calley integration bar
- if(getCalleyToken()){
-  var unpushedLeads = queueLeads.filter(function(l){return !l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'});
-  var unpushedCount = unpushedLeads.length;
-  h += '<div class="card" style="padding:6px 12px;margin-bottom:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,#fff5f0,#fff0e6);border:1px solid #ff6b35">';
-  h += '<span style="font-size:13px">📱</span>';
-  h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley</span>';
-  h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" id="calleyPushBtn">Push ' + unpushedCount + ' leads to Calley</button>';
-  h += '<span id="calleyPushCount" data-leads=\''+JSON.stringify(unpushedLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
-  h += '<button class="btn btn-sm" onclick="calleySyncResults()" style="background:#2980b9;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Sync Results</button>';
-  var lastSync = localStorage.getItem('calley_last_sync');
-  if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
-  h += '</div>';
- }
-
  // Apply filter
  var filteredQueue = queueLeads;
  if(crmQueueFilter === 'call_today') filteredQueue = queueLeads; // all queue leads need action today
@@ -4308,6 +4293,22 @@ function renderCallQueue(){
  else if(crmQueueFilter === 'app_submitted') filteredQueue = queueLeads.filter(function(l){return l.stage==='app_submitted'});
  else if(crmQueueFilter === 'won') filteredQueue = queueLeads.filter(function(l){return l.stage==='won'});
  else if(crmQueueFilter === 'lost') filteredQueue = queueLeads.filter(function(l){return l.stage==='lost'});
+
+ // Calley integration bar (after filter so it shows count for visible leads)
+ if(getCalleyToken()){
+  var calleyFilteredLeads = filteredQueue.filter(function(l){return !l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'});
+  var calleyCount = calleyFilteredLeads.length;
+  var filterLabel = crmQueueFilter === 'all' ? 'All' : crmQueueFilter === 'call_today' ? 'Call Today' : crmQueueFilter === 'need_morning' ? 'Morning' : crmQueueFilter === 'need_afternoon' ? 'Afternoon' : crmQueueFilter === 'need_evening' ? 'Evening' : crmQueueFilter === 'new' ? 'New' : crmQueueFilter === 'attempting' ? 'Attempting' : crmQueueFilter === 'connected' ? 'Connected' : crmQueueFilter === 'discovery' ? 'Discovery' : crmQueueFilter === 'incubator' ? 'Nurturing' : crmQueueFilter === 'meeting' ? 'Meeting Set' : crmQueueFilter === 'quoted' ? 'Quoted' : crmQueueFilter;
+  h += '<div class="card" style="padding:6px 12px;margin-bottom:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,#fff5f0,#fff0e6);border:1px solid #ff6b35">';
+  h += '<span style="font-size:13px">📱</span>';
+  h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley</span>';
+  h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">Push ' + calleyCount + ' ' + filterLabel + ' leads to Calley</button>';
+  h += '<span id="calleyPushCount" data-leads=\''+JSON.stringify(calleyFilteredLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
+  h += '<button class="btn btn-sm" onclick="calleySyncResults()" style="background:#2980b9;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Sync Results</button>';
+  var lastSync = localStorage.getItem('calley_last_sync');
+  if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
+  h += '</div>';
+ }
 
  // Stage move breadcrumb notices
  if(stageMoveNotices.length > 0){
