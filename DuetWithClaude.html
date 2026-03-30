@@ -2810,7 +2810,13 @@ function shouldShowInQueue(lead){
  var fu = getFollowUpStatus(lead);
  if(fu){
   if(fu.exhausted) return false;
-  return fu.due;
+  if(fu.due) return true;
+  // Always show leads that entered this stage today (so they don't vanish after disposition)
+  if(lead.stageEnteredDate){
+   var enteredToday = new Date(lead.stageEnteredDate).toISOString().substring(0,10) === new Date().toISOString().substring(0,10);
+   if(enteredToday) return true;
+  }
+  return false;
  }
  // New leads always show
  return true;
