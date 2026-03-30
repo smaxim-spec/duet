@@ -1033,24 +1033,36 @@ function calleySyncResults(){
    if(!lead){ skipped++; return; }
    // Check if already synced (by matching dateOfCall)
    var calleyDate = rec.dateOfCall || '';
-   var alreadySynced = (lead.callLog||[]).some(function(c){
-    return c.calleyId === rec.id;
-   });
-   if(alreadySynced){ skipped++; return; }
    // Map disposition
    var calleyFeedback = rec.feedback || 'No Answer';
    var duetOutcome = CALLEY_DISPOSITION_MAP[calleyFeedback] || 'No Answer';
-   var prevStage = lead.stage;
-   // Log the call
-   if(!lead.callLog) lead.callLog = [];
-   lead.callLog.push({
-    date: new Date(calleyDate.replace(/(\d{2}) (\w{3}) (\d{4}) (\d{2}:\d{2}:\d{2})/, '$2 $1, $3 $4')).toISOString() || new Date().toISOString(),
-    outcome: duetOutcome,
-    block: 'calley',
-    notes: '📱 Calley sync — ' + (rec.callDuration||'0:00') + (rec.callNotes ? ' — '+rec.callNotes : ''),
-    calleyId: rec.id
+   // Check if already synced — if so, fix outcome if it was wrong
+   var existingEntry = null;
+   (lead.callLog||[]).forEach(function(c, ci){
+    if(c.calleyId === rec.id) existingEntry = {entry:c, idx:ci};
    });
-   // Apply stage transition (same logic as logCall)
+   if(existingEntry){
+    if(existingEntry.entry.outcome !== duetOutcome){
+     // Fix the mis-mapped outcome
+     existingEntry.entry.outcome = duetOutcome;
+     existingEntry.entry.notes = '📱 Calley sync (corrected) — ' + (rec.callDuration||'0:00') + (rec.callNotes ? ' — '+rec.callNotes : '');
+    } else {
+     skipped++; return;
+    }
+   }
+   var prevStage = lead.stage;
+   // Log the call (only if new)
+   if(!lead.callLog) lead.callLog = [];
+   if(!existingEntry){
+    lead.callLog.push({
+     date: new Date(calleyDate.replace(/(\d{2}) (\w{3}) (\d{4}) (\d{2}:\d{2}:\d{2})/, '$2 $1, $3 $4')).toISOString() || new Date().toISOString(),
+     outcome: duetOutcome,
+     block: 'calley',
+     notes: '📱 Calley sync — ' + (rec.callDuration||'0:00') + (rec.callNotes ? ' — '+rec.callNotes : ''),
+     calleyId: rec.id
+    });
+   }
+   // Apply stage transition (runs for new AND corrected entries)
    if(duetOutcome === 'Connected' && (lead.stage === 'new' || lead.stage === 'attempting')) lead.stage = 'connected';
    if(duetOutcome === 'Discovery' && (lead.stage === 'new' || lead.stage === 'attempting' || lead.stage === 'connected')) lead.stage = 'discovery';
    if(duetOutcome === 'Appt Set') lead.stage = 'meeting_set';
