@@ -899,6 +899,9 @@ var APPT_SLOTS = ['10:00','10:30','11:00','11:30','12:00','12:30','1:00','1:30',
 var CALL_BLOCKS = [{label:'Morning (9-10am)',start:9,end:10},{label:'Afternoon (1-2pm)',start:13,end:14},{label:'Evening (5:30-6:30pm)',start:17.5,end:18.5}];
 var INTEREST_CATS = ['Life Insurance','Annuity','IUL / Universal Life','Banking / CD'];
 
+// ── DATE HELPER (global) ──
+function toYMD(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+
 // ── CALLEY INTEGRATION ──
 var CALLEY_PROXY = '/calley-proxy'; // routes through duet_server.py proxy
 var CALLEY_DEFAULT_LIST_ID = 'mcl-E99A0084-F93E-4D5F-80AC-1F4F9A99FEAA'; // "Duet" list
