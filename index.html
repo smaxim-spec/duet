@@ -1012,7 +1012,7 @@ function calleyPushFiltered(){
 }
 
 function calleySyncResults(){
- var today = new Date().toISOString().substring(0,10);
+ var today = toYMD(new Date());
  // Also pull yesterday to handle timezone differences
  var yesterday = new Date(Date.now() - 86400000).toISOString().substring(0,10);
  showToast('🔄 Syncing Calley call results...', 3000);
@@ -2407,7 +2407,7 @@ function genReport(){
  var lastThursISO = lastThurs.toISOString();
  var lastWedISO = lastWed.toISOString();
  // Date strings for submitted date comparison (YYYY-MM-DD format)
- function toYMD(d){ return d.toISOString().substring(0,10); }
+ function toYMD(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
  var weekStartYMD = toYMD(thisThurs);
  var weekEndYMD = toYMD(thisWed);
  var lastWeekStartYMD = toYMD(lastThurs);
@@ -2875,7 +2875,7 @@ function getCallCadenceStage(lead){
   if(!callDates[d]) callDates[d] = [];
   callDates[d].push(c);
  });
- var today = now.toISOString().substring(0,10);
+ var today = toYMD(now);
  var todayCalls = callDates[today] || [];
 
  // Check time-of-day coverage today
@@ -3014,7 +3014,7 @@ function shouldShowInQueue(lead){
   if(fu.due) return true;
   // Always show leads that entered this stage today (so they don't vanish after disposition)
   if(lead.stageEnteredDate){
-   var enteredToday = new Date(lead.stageEnteredDate).toISOString().substring(0,10) === new Date().toISOString().substring(0,10);
+   var enteredToday = toYMD(new Date(lead.stageEnteredDate)) === toYMD(new Date());
    if(enteredToday) return true;
   }
   return false;
@@ -4054,7 +4054,7 @@ function renderCallQueue(){
  var todayCalls = 0;
  leads.forEach(function(l){
   if(l.callLog) l.callLog.forEach(function(c){
-   if(c.date.substring(0,10) === new Date().toISOString().substring(0,10)) todayCalls++;
+   if(c.date.substring(0,10) === toYMD(new Date())) todayCalls++;
   });
  });
  var incubating = leads.filter(function(l){return l.stage==='incubator'}).length;
@@ -4100,7 +4100,8 @@ function renderCallQueue(){
 
  // ═══ DAILY BRIEFING ═══
  var now = new Date();
- var todayISO = now.toISOString().substring(0,10);
+ // Use local date, not UTC — prevents day mismatch after 8pm EST
+ var todayISO = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
  var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -4122,7 +4123,7 @@ function renderCallQueue(){
  var bfTodayMeetings = appointments.filter(function(a){ return a.date === todayISO; }).sort(function(a,b){ return a.time < b.time ? -1 : 1; });
  var bfTomorrowMeetings = [];
  var tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate()+1);
- var tomorrowISO = tomorrow.toISOString().substring(0,10);
+ var tomorrowISO = toYMD(tomorrow);
  bfTomorrowMeetings = appointments.filter(function(a){ return a.date === tomorrowISO; });
 
  // Pace
@@ -4615,7 +4616,7 @@ function pasteImportLeads(withVCard){
  // Generate and download vCard
  if(withVCard && newLeads.length > 0){
   var vcf = generateVCard(newLeads);
-  var today = new Date().toISOString().substring(0,10);
+  var today = toYMD(new Date());
   downloadVCard(vcf, 'leads-'+today+'.vcf');
   showToast(msg + ' vCard downloaded!', 6000);
  }
@@ -5382,7 +5383,7 @@ function removeAgent(id){
 
 function renderScheduleView(){
  var h = '';
- var today = new Date().toISOString().substring(0,10);
+ var today = toYMD(new Date());
 
  // Upcoming appointments
  var upcoming = appointments.filter(function(a){return a.date >= today}).sort(function(a,b){return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.time < b.time ? -1 : 1)});
