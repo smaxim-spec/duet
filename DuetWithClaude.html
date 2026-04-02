@@ -180,8 +180,8 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.1.0';
-var APP_BUILD_DATE = '2026-03-29';
+var APP_VERSION = 'v1.8.0';
+var APP_BUILD_DATE = '2026-04-02';
 var CHANGELOG = [
  {ver:'v1.1.0', date:'2026-03-29', notes:[
   'Objections & Concerns log — track client pushback with category, response, and status (Open/Addressed/Resolved)',
@@ -875,7 +875,7 @@ function saveAppts(){
 var CRM_STAGES = ['new','attempting','connected','discovery','incubator','meeting_set','quoted','app_submitted','won','lost'];
 var CRM_STAGE_LABELS = {new:'New',attempting:'Attempting',connected:'Connected',discovery:'Discovery',incubator:'Nurturing',meeting_set:'Meeting Set',quoted:'Quoted',app_submitted:'App Submitted',won:'Won',lost:'Lost'};
 var CRM_STAGE_COLORS = {new:'#3498db',attempting:'#e67e22',connected:'#f39c12',discovery:'#1abc9c',incubator:'#9b59b6',meeting_set:'var(--pri)',quoted:'#2980b9',app_submitted:'var(--amb)',won:'var(--grn)',lost:'#c0392b'};
-var CALL_OUTCOMES = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Confirmed','Rescheduled','Quoted','App Submitted','Won','Nurturing','Lost'];
+var CALL_OUTCOMES = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Confirmed','Rescheduled','Quoted','App Submitted','Won','Nurturing','Lost','Callback'];
 var LOST_REASONS = ['Not Interested','Went Elsewhere','Did Not Qualify','Bad Timing','No Contact After Max Attempts','Price','Incorrect Number','Other'];
 var WIN_REASONS = ['Great Fit','Agent Referral Trust','Price Competitive','Urgency/Need','Existing Relationship','Product Match','Other'];
 var INCUBATOR_TEMPS = ['hot','warm','cool'];
@@ -904,7 +904,66 @@ function toYMD(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,
 
 // ── CALLEY INTEGRATION ──
 var CALLEY_PROXY = '/calley-proxy'; // routes through duet_server.py proxy
-var CALLEY_DEFAULT_LIST_ID = 'mcl-E99A0084-F93E-4D5F-80AC-1F4F9A99FEAA'; // "Duet" list
+var CALLEY_DEFAULT_LIST_ID = 'mcl-5459A370-35FE-4176-AA44-0BBE6E879340'; // "Duet 3" list (general/default)
+// Stage-based Calley lists — export uses the matching list name in filename
+var CALLEY_STAGE_LISTS = {
+ 'quoted':    { id: 'mcl-400C638F-1A00-470C-9A72-EDC23CD34B97', name: 'Quoted Nurturing' },
+ 'incubator': { id: 'mcl-400C638F-1A00-470C-9A72-EDC23CD34B97', name: 'Quoted Nurturing' },
+ 'discovery':  { id: 'mcl-27C8FF8A-082F-41CF-A1B3-4D493A4DA6DB', name: 'Discovery' },
+ 'connected':  { id: 'mcl-1AD89E2B-E270-4D26-950B-52B66958FA44', name: 'Connected' },
+ 'attempting':  { id: 'mcl-B78BD6C1-E60F-4689-8BD3-6979B7A8EEE7', name: 'Attempting' },
+ 'new':         { id: 'mcl-E819773E-8420-476D-83B5-6832C1E8C801', name: 'New Leads' },
+ 'meeting_set': { id: 'mcl-25F4B2FA-7743-442F-B3B9-F9F362BFA20D', name: 'Meeting Set' }
+};
+
+// ── CARRIER PHONE NUMBERS (click-to-call from Book of Business) ──
+var CARRIER_PHONES = {
+ 'Guaranteed Issue Whole Life (GIWL)': '8884447181',
+ 'Platinum Annuity 5 External (ages 0-79)': '8884447181',
+ 'Certificate of Deposit (CD)': '8335862265',
+ 'Elite3 Guarantee External': '8884447181',
+ 'GA Premier Bonus External (ages 0-75)': '8008543649',
+ '20-Year Term': '8884447181',
+ '15-Year Term': '8884447181',
+ 'Whole Life (W21GN / RWL21)': '8884447181',
+ 'GA Landmark 5 External (ages 0-75)': '8008543649',
+ 'GA American Legend 7 External (ages 0-75)': '8008543649',
+ 'Securian Eclipse UL (brokered)': '8884447181'
+};
+function carrierPhoneLink(product){
+ var ph = CARRIER_PHONES[product];
+ if(!ph) return product;
+ var fmtPh = '('+ph.slice(0,3)+') '+ph.slice(3,6)+'-'+ph.slice(6);
+ return '<a href="tel:'+ph+'" title="Call carrier: '+fmtPh+'" style="color:#2980b9;text-decoration:underline;cursor:pointer">'+product+'</a>';
+}
+function clientPhoneLink(clientName, casePhone){
+ // 1. Use phone stored directly on the pipeline case first
+ var ph = casePhone ? casePhone.replace(/\D/g,'') : '';
+ // 2. Fall back to CRM lead lookup
+ if(!ph || ph.length < 10){
+  var cn = clientName.toLowerCase().trim();
+  var cnParts = cn.split(/\s+/);
+  var lastName = cnParts[cnParts.length - 1];
+  var firstName = cnParts[0];
+  var lead = leads.find(function(l){
+   if(!l.name || !l.phone) return false;
+   var ln = l.name.toLowerCase().trim();
+   return ln === cn || ln.indexOf(cn) !== -1 || cn.indexOf(ln) !== -1;
+  });
+  if(!lead && cnParts.length >= 2){
+   lead = leads.find(function(l){
+    if(!l.name || !l.phone) return false;
+    var ln = l.name.toLowerCase().trim();
+    return ln.indexOf(lastName) !== -1 && ln.indexOf(firstName.charAt(0)) !== -1;
+   });
+  }
+  if(lead && lead.phone) ph = lead.phone.replace(/\D/g,'');
+ }
+ if(!ph || ph.length < 10) return '<b>'+clientName+'</b>';
+ var fmtPh = '('+ph.slice(-10,-7)+') '+ph.slice(-7,-4)+'-'+ph.slice(-4);
+ return '<a href="tel:'+ph+'" title="Call client: '+fmtPh+'" style="color:#2980b9;text-decoration:underline;cursor:pointer"><b>'+clientName+'</b></a>';
+}
+
 var CALLEY_DISPOSITION_MAP = {
  'No Answer':'No Answer', 'Left VM':'Left VM', 'Connected':'Connected',
  'Discovery':'Discovery', 'Appt Set':'Appt Set', 'Quoted':'Quoted',
@@ -1012,6 +1071,45 @@ function calleyPushFiltered(){
   });
  }
  pushNext(0);
+}
+
+function calleyExportCSV(){
+ var filterEl = document.getElementById('calleyExportList');
+ if(!filterEl) return;
+ var exportIds = JSON.parse(filterEl.dataset.leads || '[]');
+ var exportLeads = leads.filter(function(l){ return exportIds.indexOf(l.id) !== -1; });
+ if(exportLeads.length === 0){ showToast('No leads to export', 3000); return; }
+ // Build XLS (Excel XML format — Calley requires .xls not .csv)
+ var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
+ xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+ xml += '<Worksheet ss:Name="Leads"><Table>';
+ xml += '<Row><Cell><Data ss:Type="String">FirstName</Data></Cell><Cell><Data ss:Type="String">Phone</Data></Cell><Cell><Data ss:Type="String">Notes</Data></Cell></Row>';
+ exportLeads.forEach(function(l){
+  var notes = [l.interest, l.source, l.agent ? 'Agent: '+l.agent : ''].filter(Boolean).join(' | ');
+  var name = (l.name||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var phone = (l.phone||'').replace(/[^0-9]/g,'');
+  var n = notes.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  xml += '<Row><Cell><Data ss:Type="String">'+name+'</Data></Cell><Cell><Data ss:Type="String">'+phone+'</Data></Cell><Cell><Data ss:Type="String">'+n+'</Data></Cell></Row>';
+ });
+ xml += '</Table></Worksheet></Workbook>';
+ var blob = new Blob([xml], {type:'application/vnd.ms-excel'});
+ var url = URL.createObjectURL(blob);
+ var a = document.createElement('a');
+ a.href = url;
+ var filterLabel = document.getElementById('calleyFilterLabel');
+ var filterText = filterLabel ? filterLabel.textContent : 'All';
+ // Use Calley list name if a stage-specific list exists for current filter
+ var stageKey = document.getElementById('calleyStageKey');
+ var sk = stageKey ? stageKey.textContent : '';
+ var calleyListInfo = sk && CALLEY_STAGE_LISTS[sk] ? CALLEY_STAGE_LISTS[sk] : null;
+ var listName = calleyListInfo ? calleyListInfo.name.replace(/\s+/g,'_') : filterText;
+ var fname = 'Duet_' + listName + '_' + toYMD(new Date()) + '.xls';
+ a.download = fname;
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ URL.revokeObjectURL(url);
+ showToast('📁 Exported ' + exportLeads.length + ' leads to XLS', 3000);
 }
 
 function calleySyncResults(){
@@ -1766,8 +1864,8 @@ function renderPipe(){
   var calc = calcCase(c);
   var p = findProd(c.product);
   var rateTxt = p.hardwired ? '0.05% <span class="badge badge-hw">HARDWIRED</span>' : p.flat ? '<span class="badge badge-flat">FLAT FEE</span>' : c.rate + '%';
-  h += '<tr><td><b>'+c.client+'</b></td>';
-  h += '<td style="max-width:160px">'+c.product+'</td>';
+  h += '<tr><td>'+clientPhoneLink(c.client, c.phone)+'</td>';
+  h += '<td style="max-width:160px">'+carrierPhoneLink(c.product)+'</td>';
   h += '<td>'+p.basis+'</td>';
   h += '<td>'+fmt(c.amount)+'</td>';
   h += '<td>'+rateTxt+'</td>';
@@ -1826,6 +1924,7 @@ function renderPipe(){
  h += '<h3 style="color:var(--amb)">Add New Case</h3>';
  h += '<div class="form-row">';
  h += '<div class="form-group"><label>Client Name</label><input id="nc_client" placeholder="e.g. Jane Smith"></div>';
+ h += '<div class="form-group"><label>Client Phone</label><input id="nc_phone" type="tel" placeholder="e.g. 4075551234"></div>';
  h += '<div class="form-group"><label>Product</label><select id="nc_product" onchange="ncProdChange()">'+prodOptions('')+'</select></div>';
  h += '<div class="form-group"><label>Amount ($)</label><input id="nc_amount" type="number" step="0.01" placeholder="Premium / deposit / flat fee"></div>';
  h += '<div class="form-group"><label>Rate (%)</label><input id="nc_rate" type="number" step="0.01"></div>';
@@ -1870,6 +1969,7 @@ function addCase(){
  var c = {
   id: nextId++,
   client: client,
+  phone: ($1('#nc_phone').value || '').replace(/\D/g,''),
   product: product,
   amount: parseFloat($1('#nc_amount').value) || 0,
   rate: p.hardwired ? 0.05 : p.flat ? 0 : (parseFloat($1('#nc_rate').value) || p.rate),
@@ -2270,9 +2370,276 @@ function renderEM(){
  h += '</div>';
 
  // Report area
- h += '<div id="reportArea" class="report-area"><p style="color:var(--muted)">Click "Generate weekly report" to build and preview the report here.</p></div>';
+ h += '<div id="reportArea" class="report-area"></div>';
+
+ // ── Salesforce Daily Activity Report ──
+ h += '<hr style="margin:24px 0;border-color:var(--border)">';
+ h += '<h2 style="margin-bottom:12px;color:var(--dgrn)">Salesforce Daily Activity Report</h2>';
+ h += '<p style="font-size:12px;color:var(--muted);margin-bottom:12px">Generate a report of all calls and stage changes for a date range. Use this to update Salesforce.</p>';
+ h += '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">';
+ h += '<label style="font-size:12px;font-weight:600">From:</label>';
+ h += '<input type="date" id="sfReportFrom" value="'+toYMD(new Date())+'" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">';
+ h += '<label style="font-size:12px;font-weight:600">To:</label>';
+ h += '<input type="date" id="sfReportTo" value="'+toYMD(new Date())+'" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">';
+ h += '<button class="btn btn-dgrn" onclick="genSalesforceReport()">Generate Report</button>';
+ h += '</div>';
+ h += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">';
+ h += '<button class="btn btn-sm btn-outline" onclick="sfQuickDate(\'today\')">Today</button>';
+ h += '<button class="btn btn-sm btn-outline" onclick="sfQuickDate(\'yesterday\')">Yesterday</button>';
+ h += '<button class="btn btn-sm btn-outline" onclick="sfQuickDate(\'thisweek\')">This Week</button>';
+ h += '<button class="btn btn-sm btn-outline" onclick="sfQuickDate(\'lastweek\')">Last Week</button>';
+ h += '<button class="btn btn-sm btn-outline" onclick="sfQuickDate(\'thismonth\')">This Month</button>';
+ h += '</div>';
+ h += '<div id="sfReportArea"></div>';
 
  $1('#p5').innerHTML = h;
+}
+
+// ══════════════════════════════════
+// Salesforce Daily Activity Report
+// ══════════════════════════════════
+function sfQuickDate(preset){
+ var today = new Date();
+ var from, to;
+ if(preset === 'today'){
+  from = to = today;
+ } else if(preset === 'yesterday'){
+  var y = new Date(today); y.setDate(y.getDate()-1);
+  from = to = y;
+ } else if(preset === 'thisweek'){
+  // Monday to today
+  var day = today.getDay(); var diff = day === 0 ? 6 : day - 1;
+  from = new Date(today); from.setDate(from.getDate() - diff);
+  to = today;
+ } else if(preset === 'lastweek'){
+  var day = today.getDay(); var diff = day === 0 ? 6 : day - 1;
+  to = new Date(today); to.setDate(to.getDate() - diff - 1);
+  from = new Date(to); from.setDate(from.getDate() - 6);
+ } else if(preset === 'thismonth'){
+  from = new Date(today.getFullYear(), today.getMonth(), 1);
+  to = today;
+ }
+ $1('#sfReportFrom').value = toYMD(from);
+ $1('#sfReportTo').value = toYMD(to);
+ genSalesforceReport();
+}
+
+function genSalesforceReport(){
+ var fromStr = $1('#sfReportFrom').value;
+ var toStr = $1('#sfReportTo').value;
+ if(!fromStr || !toStr){ showToast('Please select dates','warn'); return; }
+
+ var fromDate = new Date(fromStr + 'T00:00:00');
+ var toDate = new Date(toStr + 'T23:59:59');
+ var fromISO = fromDate.toISOString();
+ var toISO = toDate.toISOString();
+
+ // Collect all calls in date range
+ var activities = [];
+ leads.forEach(function(lead){
+  if(!lead.callLog) return;
+  lead.callLog.forEach(function(c){
+   if(c.date >= fromISO && c.date <= toISO){
+    activities.push({
+     date: c.date,
+     name: lead.name || 'Unknown',
+     phone: lead.phone || '',
+     stage: lead.stage || '',
+     outcome: c.outcome || '',
+     block: c.block || '',
+     notes: c.notes || '',
+     source: lead.source || '',
+     agent: lead.agent || '',
+     interest: lead.interest || '',
+     email: lead.email || ''
+    });
+   }
+  });
+ });
+
+ // Sort by date
+ activities.sort(function(a,b){ return a.date < b.date ? -1 : 1; });
+
+ // Summary stats
+ var totalCalls = activities.length;
+ var outcomes = {};
+ activities.forEach(function(a){
+  outcomes[a.outcome] = (outcomes[a.outcome]||0) + 1;
+ });
+ var uniqueLeads = {};
+ activities.forEach(function(a){ uniqueLeads[a.name] = true; });
+ var uniqueCount = Object.keys(uniqueLeads).length;
+
+ // Stage changes in date range
+ var stageChanges = [];
+ leads.forEach(function(lead){
+  if(lead.stageEnteredDate && lead.stageEnteredDate >= fromStr && lead.stageEnteredDate <= toStr){
+   if(lead.stage !== 'new'){
+    stageChanges.push({
+     name: lead.name || 'Unknown',
+     stage: (CRM_STAGE_LABELS[lead.stage] || lead.stage),
+     date: lead.stageEnteredDate,
+     interest: lead.interest || ''
+    });
+   }
+  }
+ });
+
+ // New leads added in date range
+ var newLeads = leads.filter(function(l){
+  if(!l.created) return false;
+  return l.created >= fromISO && l.created <= toISO;
+ });
+
+ // Date label
+ var dateLabel = fromStr === toStr ?
+  new Date(fromStr+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) :
+  new Date(fromStr+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' — ' + new Date(toStr+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+
+ // Build HTML
+ var h = '<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:20px;margin-top:8px">';
+ h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+ h += '<h3 style="color:var(--dgrn);margin:0">Activity Report: '+dateLabel+'</h3>';
+ h += '<div><button class="btn btn-sm btn-dgrn" onclick="copySfReport()" style="margin-right:6px">📋 Copy to Clipboard</button>';
+ h += '<button class="btn btn-sm btn-outline" onclick="downloadSfReport()">⬇ Download CSV</button></div>';
+ h += '</div>';
+
+ // Summary cards
+ h += '<div style="display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap">';
+ h += '<div style="background:var(--bg);padding:12px 18px;border-radius:8px;text-align:center;min-width:100px"><div style="font-size:24px;font-weight:700;color:var(--dgrn)">'+totalCalls+'</div><div style="font-size:11px;color:var(--muted)">Total Calls</div></div>';
+ h += '<div style="background:var(--bg);padding:12px 18px;border-radius:8px;text-align:center;min-width:100px"><div style="font-size:24px;font-weight:700;color:var(--pri)">'+uniqueCount+'</div><div style="font-size:11px;color:var(--muted)">Unique Contacts</div></div>';
+ h += '<div style="background:var(--bg);padding:12px 18px;border-radius:8px;text-align:center;min-width:100px"><div style="font-size:24px;font-weight:700;color:#e67e22">'+(outcomes['Connected']||0)+'</div><div style="font-size:11px;color:var(--muted)">Connected</div></div>';
+ h += '<div style="background:var(--bg);padding:12px 18px;border-radius:8px;text-align:center;min-width:100px"><div style="font-size:24px;font-weight:700;color:#27ae60">'+(outcomes['Appt Set']||0)+'</div><div style="font-size:11px;color:var(--muted)">Appts Set</div></div>';
+ h += '<div style="background:var(--bg);padding:12px 18px;border-radius:8px;text-align:center;min-width:100px"><div style="font-size:24px;font-weight:700;color:#8e44ad">'+newLeads.length+'</div><div style="font-size:11px;color:var(--muted)">New Leads</div></div>';
+ h += '<div style="background:var(--bg);padding:12px 18px;border-radius:8px;text-align:center;min-width:100px"><div style="font-size:24px;font-weight:700;color:#2980b9">'+stageChanges.length+'</div><div style="font-size:11px;color:var(--muted)">Stage Changes</div></div>';
+ h += '</div>';
+
+ // Outcome breakdown
+ h += '<div style="margin-bottom:18px"><h4 style="color:var(--dgrn);margin-bottom:6px;font-size:13px">Outcome Breakdown</h4>';
+ h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+ var outcomeOrder = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Confirmed','Rescheduled','Quoted','App Submitted','Won','Nurturing','Lost','Callback'];
+ outcomeOrder.forEach(function(oc){
+  if(outcomes[oc]){
+   h += '<span style="background:var(--bg);padding:4px 10px;border-radius:12px;font-size:12px"><b>'+oc+':</b> '+outcomes[oc]+'</span>';
+  }
+ });
+ h += '</div></div>';
+
+ // Call detail table
+ if(activities.length > 0){
+  h += '<h4 style="color:var(--dgrn);margin-bottom:6px;font-size:13px">Call Activity Detail</h4>';
+  h += '<div style="overflow-x:auto"><table class="tbl" style="font-size:11px;width:100%">';
+  h += '<tr style="background:var(--dgrn);color:#fff"><th>Time</th><th>Name</th><th>Phone</th><th>Outcome</th><th>Stage</th><th>Interest</th><th>Source</th><th>Agent</th><th>Notes</th></tr>';
+  activities.forEach(function(a){
+   var dt = new Date(a.date);
+   var timeStr = dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+   var dateStr = dt.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+   var stgLabel = CRM_STAGE_LABELS[a.stage] || a.stage;
+   h += '<tr>';
+   h += '<td style="white-space:nowrap">'+dateStr+' '+timeStr+'</td>';
+   h += '<td><b>'+a.name+'</b></td>';
+   h += '<td>'+a.phone+'</td>';
+   h += '<td>'+a.outcome+'</td>';
+   h += '<td>'+stgLabel+'</td>';
+   h += '<td>'+a.interest+'</td>';
+   h += '<td>'+a.source+'</td>';
+   h += '<td>'+a.agent+'</td>';
+   h += '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">'+a.notes+'</td>';
+   h += '</tr>';
+  });
+  h += '</table></div>';
+ } else {
+  h += '<p style="color:var(--muted);font-style:italic">No calls logged for this date range.</p>';
+ }
+
+ // Stage changes
+ if(stageChanges.length > 0){
+  h += '<h4 style="color:var(--dgrn);margin-top:18px;margin-bottom:6px;font-size:13px">Stage Changes</h4>';
+  h += '<table class="tbl" style="font-size:11px;width:100%">';
+  h += '<tr style="background:var(--dgrn);color:#fff"><th>Date</th><th>Name</th><th>New Stage</th><th>Interest</th></tr>';
+  stageChanges.forEach(function(sc){
+   h += '<tr><td>'+sc.date+'</td><td><b>'+sc.name+'</b></td><td>'+sc.stage+'</td><td>'+sc.interest+'</td></tr>';
+  });
+  h += '</table>';
+ }
+
+ // New leads
+ if(newLeads.length > 0){
+  h += '<h4 style="color:var(--dgrn);margin-top:18px;margin-bottom:6px;font-size:13px">New Leads Added</h4>';
+  h += '<table class="tbl" style="font-size:11px;width:100%">';
+  h += '<tr style="background:var(--dgrn);color:#fff"><th>Name</th><th>Phone</th><th>Email</th><th>Interest</th><th>Source</th><th>Agent</th></tr>';
+  newLeads.forEach(function(l){
+   h += '<tr><td><b>'+l.name+'</b></td><td>'+l.phone+'</td><td>'+(l.email||'')+'</td><td>'+(l.interest||'')+'</td><td>'+(l.source||'')+'</td><td>'+(l.agent||'')+'</td></tr>';
+  });
+  h += '</table>';
+ }
+
+ h += '</div>';
+ $1('#sfReportArea').innerHTML = h;
+}
+
+function copySfReport(){
+ var fromStr = $1('#sfReportFrom').value;
+ var toStr = $1('#sfReportTo').value;
+ var fromDate = new Date(fromStr + 'T00:00:00');
+ var toDate = new Date(toStr + 'T23:59:59');
+ var fromISO = fromDate.toISOString();
+ var toISO = toDate.toISOString();
+
+ var lines = ['Date/Time\tName\tPhone\tEmail\tOutcome\tStage\tInterest\tSource\tAgent\tNotes'];
+ leads.forEach(function(lead){
+  if(!lead.callLog) return;
+  lead.callLog.forEach(function(c){
+   if(c.date >= fromISO && c.date <= toISO){
+    var dt = new Date(c.date);
+    var ts = dt.toLocaleDateString('en-US')+' '+dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+    lines.push(ts+'\t'+(lead.name||'')+'\t'+(lead.phone||'')+'\t'+(lead.email||'')+'\t'+(c.outcome||'')+'\t'+(CRM_STAGE_LABELS[lead.stage]||lead.stage)+'\t'+(lead.interest||'')+'\t'+(lead.source||'')+'\t'+(lead.agent||'')+'\t'+(c.notes||'').replace(/\t/g,' '));
+   }
+  });
+ });
+ navigator.clipboard.writeText(lines.join('\n')).then(function(){
+  showToast('Report copied — paste into Salesforce or Excel','success');
+ });
+}
+
+function downloadSfReport(){
+ var fromStr = $1('#sfReportFrom').value;
+ var toStr = $1('#sfReportTo').value;
+ var fromDate = new Date(fromStr + 'T00:00:00');
+ var toDate = new Date(toStr + 'T23:59:59');
+ var fromISO = fromDate.toISOString();
+ var toISO = toDate.toISOString();
+
+ var rows = [['Date','Time','Name','Phone','Email','Outcome','Current Stage','Interest','Source','Agent','Notes']];
+ leads.forEach(function(lead){
+  if(!lead.callLog) return;
+  lead.callLog.forEach(function(c){
+   if(c.date >= fromISO && c.date <= toISO){
+    var dt = new Date(c.date);
+    rows.push([
+     dt.toLocaleDateString('en-US'),
+     dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}),
+     (lead.name||''),
+     (lead.phone||''),
+     (lead.email||''),
+     (c.outcome||''),
+     (CRM_STAGE_LABELS[lead.stage]||lead.stage),
+     (lead.interest||''),
+     (lead.source||''),
+     (lead.agent||''),
+     (c.notes||'').replace(/"/g,'""')
+    ]);
+   }
+  });
+ });
+
+ var csv = rows.map(function(r){ return r.map(function(c){return '"'+c+'"'}).join(','); }).join('\n');
+ var blob = new Blob([csv], {type:'text/csv'});
+ var a = document.createElement('a');
+ a.href = URL.createObjectURL(blob);
+ a.download = 'Salesforce_Activity_'+fromStr+'_to_'+toStr+'.csv';
+ a.click();
+ showToast('CSV downloaded','success');
 }
 
 // ══════════════════════════════════
@@ -2429,7 +2796,7 @@ function genReport(){
   var calc = calcCase(c);
   totalComm += calc.steveShare;
   var agent = c.splitName || '—';
-  rows += '<tr><td>'+c.client+'</td><td>'+c.product+'</td><td>'+fmt(c.amount)+'</td><td><b>'+fmt(calc.steveShare)+'</b></td><td>'+(calc.partnerGets>0?fmt(calc.partnerGets):'—')+'</td><td>'+agent+'</td><td>'+statusBadge(c.status)+'</td><td>'+c.submitted+'</td><td>'+(c.estPay||'TBD')+'</td></tr>';
+  rows += '<tr><td>'+clientPhoneLink(c.client, c.phone)+'</td><td>'+carrierPhoneLink(c.product)+'</td><td>'+fmt(c.amount)+'</td><td><b>'+fmt(calc.steveShare)+'</b></td><td>'+(calc.partnerGets>0?fmt(calc.partnerGets):'—')+'</td><td>'+agent+'</td><td>'+statusBadge(c.status)+'</td><td>'+c.submitted+'</td><td>'+(c.estPay||'TBD')+'</td></tr>';
   htmlRows += '<tr><td style="padding:6px;border:1px solid #ddd">'+c.client+'</td><td style="padding:6px;border:1px solid #ddd">'+c.product+'</td><td style="padding:6px;border:1px solid #ddd">'+fmt(c.amount)+'</td><td style="padding:6px;border:1px solid #ddd;font-weight:bold">'+fmt(calc.steveShare)+'</td><td style="padding:6px;border:1px solid #ddd">'+(calc.partnerGets>0?fmt(calc.partnerGets):'—')+'</td><td style="padding:6px;border:1px solid #ddd">'+agent+'</td><td style="padding:6px;border:1px solid #ddd">'+c.status+'</td><td style="padding:6px;border:1px solid #ddd">'+c.submitted+'</td><td style="padding:6px;border:1px solid #ddd">'+(c.estPay||'TBD')+'</td></tr>';
  });
 
@@ -2569,7 +2936,7 @@ function genReport(){
   var calc = calcCase(c);
   allOpenComm += calc.steveShare;
   var agent = c.splitName || '—';
-  openRows += '<tr><td>'+c.client+'</td><td>'+c.product+'</td><td>'+fmt(c.amount)+'</td><td><b>'+fmt(calc.steveShare)+'</b></td><td>'+agent+'</td><td>'+statusBadge(c.status)+'</td><td>'+c.submitted+'</td></tr>';
+  openRows += '<tr><td>'+clientPhoneLink(c.client, c.phone)+'</td><td>'+carrierPhoneLink(c.product)+'</td><td>'+fmt(c.amount)+'</td><td><b>'+fmt(calc.steveShare)+'</b></td><td>'+agent+'</td><td>'+statusBadge(c.status)+'</td><td>'+c.submitted+'</td></tr>';
  });
  h += '<h4 style="color:var(--amb);margin-top:16px;margin-bottom:8px">All Open Cases ('+allOpenCases.length+')</h4>';
  if(allOpenCases.length > 0){
@@ -2855,6 +3222,7 @@ function copyGmailHtml(){
 var crmView = 'queue'; // queue, all, lead, bulk, agents, schedule
 var crmFilterStage = 'all';
 var crmFilterAgent = 'all';
+var crmSearchQuery = '';
 var crmQueueFilter = 'all'; // all, call_today, need_morning, need_afternoon, need_evening, new, connected, incubator, meeting
 var crmEditId = null;
 var stageMoveNotices = []; // breadcrumb notices for stage moves
@@ -2990,7 +3358,13 @@ function getLeadPriority(lead){
  return 70;
 }
 
+function isCallbackDueToday(lead){
+ if(!lead.callbackDate) return false;
+ return lead.callbackDate <= toYMD(new Date());
+}
 function shouldShowInQueue(lead){
+ // Callback leads show in queue when due, even if won/lost
+ if(lead.callbackDate && isCallbackDueToday(lead)) return true;
  if(lead.stage === 'won' || lead.stage === 'lost') return false;
  if(lead.stage === 'incubator'){
   if(!lead.callLog || lead.callLog.length === 0) return true;
@@ -3070,6 +3444,22 @@ function logCall(leadId, outcome, block, notes){
  }
  if(outcome === 'Won'){
   lead.stage = 'won';
+  convertToPipeline(lead);
+ }
+ if(outcome === 'Callback'){
+  // Prompt for callback date
+  setTimeout(function(){
+   var cbHtml = '<div style="margin-bottom:6px"><b>📅 Set callback date for '+lead.name+'</b></div>';
+   cbHtml += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">';
+   cbHtml += '<button onclick="setCallbackQuick('+lead.id+',7)" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">1 Week</button>';
+   cbHtml += '<button onclick="setCallbackQuick('+lead.id+',14)" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">2 Weeks</button>';
+   cbHtml += '<button onclick="setCallbackQuick('+lead.id+',30)" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">1 Month</button>';
+   cbHtml += '<button onclick="setCallbackQuick('+lead.id+',60)" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">2 Months</button>';
+   cbHtml += '<button onclick="setCallbackQuick('+lead.id+',90)" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">3 Months</button>';
+   cbHtml += '<input type="date" id="cb_custom_'+lead.id+'" style="font-size:11px;padding:4px" onchange="setCallbackCustom('+lead.id+')">';
+   cbHtml += '</div>';
+   showToast(cbHtml, 999999);
+  }, 100);
  }
  // Legacy support for old disposition names
  if(outcome === 'Spoke - Interested') lead.stage = 'discovery';
@@ -3231,6 +3621,20 @@ function updateLeadStage(id, newStage){
  lead.stage = newStage;
  lead.stageEnteredDate = new Date().toISOString();
  if(newStage === 'incubator' && !lead.incubatorTemp) lead.incubatorTemp = 'warm';
+ if(newStage === 'won'){
+  // Auto-create pipeline case when marking as won directly
+  convertToPipeline(lead);
+  var winHtml = '<div style="margin-bottom:6px"><b>🎉 '+lead.name+' — Won!</b> Why did we win?</div><div style="display:flex;gap:4px;flex-wrap:wrap">';
+  WIN_REASONS.forEach(function(r){
+   winHtml += '<button onclick="event.stopPropagation();setWinReason('+lead.id+',\''+r+'\')" style="background:var(--grn);color:#fff;border:none;padding:8px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">'+r+'</button>';
+  });
+  winHtml += '</div>';
+  showToast(winHtml, 999999);
+  if(lead.agent){
+   var ag = splitAgents.find(function(a){return a.name === lead.agent});
+   if(ag && ag.email) composeAgentNotifyEmail(lead, ag);
+  }
+ }
  if(newStage === 'app_submitted'){
   // Prompt for win reason
   var winHtml = '<div style="margin-bottom:6px"><b>🎉 '+lead.name+' — Won!</b> Why did we win?</div><div style="display:flex;gap:4px;flex-wrap:wrap">';
@@ -3281,6 +3685,83 @@ function setWinReason(id, reason){
  showToast(lead.name+' — Won: '+reason, 3000);
 }
 
+// ── CALLBACK DATE HELPERS ──
+function setCallbackQuick(id, days){
+ dismissToasts();
+ var lead = leads.find(function(l){return l.id === id});
+ if(!lead) return;
+ var d = new Date();
+ d.setDate(d.getDate() + days);
+ lead.callbackDate = toYMD(d);
+ lead.callbackNote = lead.callLog && lead.callLog.length > 0 ? lead.callLog[lead.callLog.length-1].outcome || '' : '';
+ saveLeads();
+ showToast('📅 Callback set for '+lead.name+' on '+lead.callbackDate, 4000);
+ renderCRM();
+}
+function setCallbackCustom(id){
+ dismissToasts();
+ var lead = leads.find(function(l){return l.id === id});
+ if(!lead) return;
+ var el = document.getElementById('cb_custom_'+id);
+ if(!el || !el.value) return;
+ lead.callbackDate = el.value;
+ lead.callbackNote = lead.callLog && lead.callLog.length > 0 ? lead.callLog[lead.callLog.length-1].outcome || '' : '';
+ saveLeads();
+ showToast('📅 Callback set for '+lead.name+' on '+lead.callbackDate, 4000);
+ renderCRM();
+}
+function clearCallback(id){
+ var lead = leads.find(function(l){return l.id === id});
+ if(!lead) return;
+ delete lead.callbackDate;
+ delete lead.callbackNote;
+ saveLeads();
+ showToast('Callback cleared for '+lead.name, 3000);
+ renderCRM();
+}
+
+// ── REOPEN LEAD (New Opportunity) ──
+function reopenLead(id, newInterest){
+ var lead = leads.find(function(l){return l.id === id});
+ if(!lead) return;
+ // Archive past deal
+ if(!lead.pastDeals) lead.pastDeals = [];
+ lead.pastDeals.push({
+  date: new Date().toISOString(),
+  stage: lead.stage,
+  interest: lead.interest,
+  wonReason: lead.wonReason || '',
+  lostReason: lead.lostReason || '',
+  callCount: lead.callLog ? lead.callLog.length : 0
+ });
+ // Reset for new opportunity
+ lead.stage = 'discovery';
+ lead.interest = newInterest || lead.interest;
+ lead.callLog = [];
+ lead.stageEnteredDate = new Date().toISOString();
+ lead.wonReason = '';
+ lead.lostReason = '';
+ delete lead.callbackDate;
+ delete lead.callbackNote;
+ saveLeads();
+ showToast('🔄 New opportunity created for '+lead.name+' ('+lead.interest+')', 5000);
+ crmEditId = lead.id;
+ crmView = 'lead';
+ renderCRM();
+}
+function promptReopenLead(id){
+ var lead = leads.find(function(l){return l.id === id});
+ if(!lead) return;
+ var h = '<div style="margin-bottom:6px"><b>🔄 New Opportunity for '+lead.name+'</b></div>';
+ h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Select new product interest:</div>';
+ h += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
+ INTEREST_CATS.forEach(function(c){
+  h += '<button onclick="dismissToasts();reopenLead('+id+',\''+c+'\')" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">'+c+'</button>';
+ });
+ h += '</div>';
+ showToast(h, 999999);
+}
+
 function deleteLead(id){
  if(!confirm('Delete this lead permanently?')) return;
  leads = leads.filter(function(l){return l.id !== id});
@@ -3307,6 +3788,7 @@ function convertToPipeline(lead){
  pl.push({
   id: nextId++,
   client: lead.name,
+  phone: lead.phone || '',
   product: prodName,
   basis: prod ? prod.basis : '',
   amount: est,
@@ -3414,6 +3896,7 @@ function createCaseFromLead(leadId){
  var c = {
   id: nextId++,
   client: lead.name,
+  phone: lead.phone || '',
   product: prod.name,
   amount: amt,
   rate: prod.rate,
@@ -4043,6 +4526,15 @@ function renderCRM(){
  else if(crmView === 'schedule') h += renderScheduleView();
 
  el.innerHTML = h;
+ // Restore focus to search inputs after re-render
+ if(crmView === 'all' && crmSearchQuery){
+  var si = document.getElementById('crm_search');
+  if(si){ si.focus(); si.selectionStart = si.selectionEnd = si.value.length; }
+ }
+ if(crmView === 'queue'){
+  var ss = document.getElementById('smart_search');
+  if(ss && ss.value){ ss.focus(); ss.selectionStart = ss.selectionEnd = ss.value.length; }
+ }
 }
 
 function renderCallQueue(){
@@ -4063,6 +4555,14 @@ function renderCallQueue(){
  var incubating = leads.filter(function(l){return l.stage==='incubator'}).length;
  var meetings = leads.filter(function(l){return l.stage==='meeting_set'}).length;
 
+
+ // ═══ SMART SEARCH BAR ═══
+ h += '<div class="card" style="margin-bottom:12px;border:2px solid var(--pri);background:linear-gradient(135deg,#f8f7ff,#fff)">';
+ h += '<div style="display:flex;gap:8px;align-items:end">';
+ h += '<div class="form-group" style="flex:1;position:relative"><label style="font-weight:700;color:var(--pri)">🔍 Search or Add Client</label><input id="smart_search" placeholder="Start typing a name..." oninput="smartSearch()" autocomplete="off" style="font-size:14px;padding:8px 12px"></div>';
+ h += '</div>';
+ h += '<div id="smart_results" style="margin-top:4px"></div>';
+ h += '</div>';
 
  // Quick add single lead
  h += '<div class="card" style="margin-bottom:12px">';
@@ -4121,6 +4621,7 @@ function renderCallQueue(){
  var bfConnectedDue = leads.filter(function(l){ if(l.stage!=='connected') return false; var fu=getFollowUpStatus(l); return fu && fu.due; });
  var bfDiscoveryDue = leads.filter(function(l){ if(l.stage!=='discovery') return false; var fu=getFollowUpStatus(l); return fu && fu.due; });
  var bfNurturingDue = queueLeads.filter(function(l){ return l.stage==='incubator'; });
+ var bfCallbacksDue = leads.filter(function(l){ return l.callbackDate && l.callbackDate <= todayISO; });
 
  // Today's meetings
  var bfTodayMeetings = appointments.filter(function(a){ return a.date === todayISO; }).sort(function(a,b){ return a.time < b.time ? -1 : 1; });
@@ -4137,7 +4638,7 @@ function renderCallQueue(){
  var bfMonthlyTarget = Math.max(0, bfGoal - bfYtdNet) / bfMonthsLeft;
 
  // Total action items today
- var bfTotalActions = bfCallsLeft + bfQuotedDue.length + bfMeetingDue.length + bfTodayMeetings.length;
+ var bfTotalActions = bfCallsLeft + bfQuotedDue.length + bfMeetingDue.length + bfTodayMeetings.length + bfCallbacksDue.length;
 
  // Greeting based on time
  var bfHr = now.getHours();
@@ -4192,6 +4693,7 @@ function renderCallQueue(){
  if(bfNewLeads.length > 0) priorityItems.push('<span style="color:#3498db">🆕 '+bfNewLeads.length+' new lead'+(bfNewLeads.length>1?'s':'')+' to call</span>');
  if(bfAttempting.length > 0) priorityItems.push('<span style="color:#e67e22">📞 '+bfAttempting.length+' attempting lead'+(bfAttempting.length>1?'s':'')+' in queue</span>');
  if(bfNurturingDue.length > 0) priorityItems.push('<span style="color:#9b59b6">🌡️ '+bfNurturingDue.length+' nurturing check-in'+(bfNurturingDue.length>1?'s':'')+'</span>');
+ if(bfCallbacksDue.length > 0) priorityItems.push('<span style="color:#e74c3c">📅 '+bfCallbacksDue.length+' scheduled callback'+(bfCallbacksDue.length>1?'s':'')+'</span> — '+bfCallbacksDue.map(function(l){return l.name}).join(', '));
 
  if(priorityItems.length > 0){
   h += '<div style="margin-bottom:4px"><b style="color:var(--pri)">Today\'s Priorities:</b></div>';
@@ -4322,6 +4824,15 @@ function renderCallQueue(){
   h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley</span>';
   h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">Push ' + calleyCount + ' ' + filterLabel + ' leads to Calley</button>';
   h += '<span id="calleyPushCount" data-leads=\''+JSON.stringify(calleyFilteredLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
+  var exportableLeads = filteredQueue.filter(function(l){return l.stage !== 'won' && l.stage !== 'lost'});
+  h += '<button class="btn btn-sm" onclick="calleyExportCSV()" style="background:#27ae60;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">📁 Export ' + exportableLeads.length + ' to XLS</button>';
+  h += '<span id="calleyExportList" data-leads=\''+JSON.stringify(exportableLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
+  h += '<span id="calleyFilterLabel" style="display:none">'+filterLabel+'</span>';
+  var stageKey = crmQueueFilter === 'meeting' ? 'meeting_set' : crmQueueFilter;
+  h += '<span id="calleyStageKey" style="display:none">'+stageKey+'</span>';
+  // Show which Calley list this stage maps to
+  var mappedList = CALLEY_STAGE_LISTS[stageKey];
+  if(mappedList) h += '<span style="font-size:9px;color:#ff6b35;margin-left:2px">→ ' + mappedList.name + '</span>';
   h += '<button class="btn btn-sm" onclick="calleySyncResults()" style="background:#2980b9;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Sync Results</button>';
   var lastSync = localStorage.getItem('calley_last_sync');
   if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
@@ -4402,6 +4913,7 @@ function renderCallQueue(){
    var openObj = (lead.objections||[]).filter(function(o){return o.status==='Open'}).length;
    if(openObj > 0) h += '<span title="'+openObj+' open objection'+(openObj>1?'s':'')+'" style="background:#e74c3c;color:#fff;font-size:8px;padding:1px 5px;border-radius:4px;font-weight:600">⚠️'+openObj+'</span>';
    h += '<span class="badge" style="background:'+borderColor+';color:#fff;font-size:8px;padding:1px 5px;margin-left:auto">'+CRM_STAGE_LABELS[lead.stage]+'</span>';
+   if(lead.callbackDate && isCallbackDueToday(lead)) h += '<span class="badge" style="background:#e74c3c;color:#fff;font-size:8px;padding:1px 5px">📅 Callback</span>';
    h += '</div></div>';
   });
   h += '</div>';
@@ -4431,6 +4943,57 @@ function renderCallQueue(){
  }
 
  return h;
+}
+
+// ── SMART SEARCH (searches all leads including won/lost) ──
+function smartSearch(){
+ var el = document.getElementById('smart_search');
+ var container = document.getElementById('smart_results');
+ if(!el || !container) return;
+ var q = el.value.trim().toLowerCase();
+ if(q.length < 2){ container.innerHTML = ''; return; }
+
+ // Search ALL leads (including won/lost)
+ var matches = leads.filter(function(l){
+  return l.name && l.name.toLowerCase().indexOf(q) >= 0;
+ }).slice(0,8);
+
+ var h = '';
+ if(matches.length > 0){
+  matches.forEach(function(l){
+   var stageColor = CRM_STAGE_COLORS[l.stage] || '#999';
+   var stageLabel = CRM_STAGE_LABELS[l.stage] || l.stage;
+   var isWonLost = l.stage === 'won' || l.stage === 'lost';
+   var hasCallback = l.callbackDate ? ' · 📅 Callback: '+l.callbackDate : '';
+   var pastCount = l.pastDeals ? l.pastDeals.length : 0;
+   var pastLabel = pastCount > 0 ? ' · '+pastCount+' past deal'+(pastCount>1?'s':'') : '';
+
+   h += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer;border-radius:6px" onmouseover="this.style.background=\'#f8f7ff\'" onmouseout="this.style.background=\'transparent\'">';
+   // Left: name + info
+   h += '<div style="flex:1">';
+   h += '<b style="font-size:13px">'+l.name+'</b>';
+   if(l.phone) h += ' <span style="font-size:11px;color:var(--muted)">'+l.phone+'</span>';
+   h += '<br><span class="badge" style="background:'+stageColor+';color:#fff;font-size:9px;padding:1px 5px">'+stageLabel+'</span>';
+   h += ' <span style="font-size:10px;color:var(--muted)">'+l.interest+pastLabel+hasCallback+'</span>';
+   h += '</div>';
+   // Right: action buttons
+   h += '<div style="display:flex;gap:4px">';
+   if(isWonLost){
+    h += '<button onclick="promptReopenLead('+l.id+')" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;white-space:nowrap">🔄 New Opportunity</button>';
+   }
+   h += '<button onclick="crmEditId='+l.id+';crmView=\'lead\';renderCRM()" style="background:var(--border);color:var(--txt);border:none;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer;white-space:nowrap">View</button>';
+   h += '</div></div>';
+  });
+ }
+
+ // Always show "Add new" option at bottom
+ var nameVal = el.value.trim();
+ h += '<div onclick="document.getElementById(\'qa_name\').value=\''+nameVal.replace(/'/g,"\\'")+'\';document.getElementById(\'qa_name\').focus();document.getElementById(\'smart_search\').value=\'\';document.getElementById(\'smart_results\').innerHTML=\'\'" style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-radius:6px;background:#f0fdf4" onmouseover="this.style.background=\'#dcfce7\'" onmouseout="this.style.background=\'#f0fdf4\'">';
+ h += '<span style="font-size:13px">➕</span>';
+ h += '<b style="font-size:12px;color:var(--grn)">Add "'+nameVal+'" as new lead</b>';
+ h += '</div>';
+
+ container.innerHTML = h;
 }
 
 function quickAddLead(){
@@ -4643,14 +5206,25 @@ function renderAllLeads(){
   h += '<option value="'+a.name+'"'+(crmFilterAgent===a.name?' selected':'')+'>'+a.name+'</option>';
  });
  h += '</select></div>';
- h += '<div style="font-size:11px;color:var(--muted)">'+leads.length+' total leads</div>';
+ h += '<div class="form-group" style="flex:1;min-width:160px"><label>Search</label><input id="crm_search" placeholder="Name or phone..." value="'+crmSearchQuery.replace(/"/g,'&quot;')+'" oninput="crmSearchQuery=this.value;renderCRM()" style="padding:4px 8px"></div>';
+ h += '<div style="font-size:11px;color:var(--muted);align-self:center">'+leads.length+' total leads</div>';
  h += '</div>';
 
  var filtered = leads.slice();
  if(crmFilterStage !== 'all') filtered = filtered.filter(function(l){return l.stage === crmFilterStage});
  if(crmFilterAgent !== 'all') filtered = filtered.filter(function(l){return l.agent === crmFilterAgent});
+ if(crmSearchQuery.length >= 2){
+  var sq = crmSearchQuery.toLowerCase();
+  filtered = filtered.filter(function(l){
+   return (l.name && l.name.toLowerCase().indexOf(sq) >= 0) ||
+          (l.phone && l.phone.replace(/\D/g,'').indexOf(sq.replace(/\D/g,'')) >= 0);
+  });
+ }
  filtered.sort(function(a,b){return new Date(b.created) - new Date(a.created)});
 
+ if(filtered.length !== leads.length){
+  h += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Showing '+filtered.length+' of '+leads.length+' leads</div>';
+ }
  h += '<table><tr><th>Name</th><th>Phone</th><th>Interest</th><th>Source</th><th>Agent</th><th>Stage</th><th>Calls</th><th>Last Contact</th><th>Created</th><th>Actions</th></tr>';
  if(filtered.length === 0){
   h += '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted)">No leads found</td></tr>';
@@ -4663,8 +5237,9 @@ function renderAllLeads(){
    lastContact = lc.toLocaleDateString('en-US',{month:'short',day:'numeric'});
   }
   h += '<tr>';
+  var leadPh = (lead.phone||'').replace(/\D/g,'');
   h += '<td><a href="#" onclick="event.preventDefault();crmEditId='+lead.id+';crmView=\'lead\';renderCRM()" style="color:var(--pri);font-weight:600">'+lead.name+'</a></td>';
-  h += '<td>'+lead.phone+'</td>';
+  h += '<td>'+(leadPh.length >= 10 ? '<a href="tel:'+leadPh+'" style="color:#2980b9;text-decoration:underline">'+lead.phone+'</a>' : lead.phone)+'</td>';
   h += '<td>'+lead.interest+'</td>';
   h += '<td style="font-size:11px">'+lead.source+'</td>';
   h += '<td>'+lead.agent+'</td>';
@@ -4959,12 +5534,75 @@ function renderLeadDetail(){
   h += '</div>';
  }
 
- // Won leads show link to Book of Business
- if(lead.stage === 'won'){
-  h += '<div class="card" style="margin-top:12px;border:2px solid var(--grn);background:var(--gtint)">';
-  h += '<h3 style="color:var(--grn)">✓ Case Created in Book of Business</h3>';
-  h += '<p style="font-size:12px">This lead was automatically converted when App Submitted. View it in the Book of Business tab.</p>';
+ // Won/Lost leads — show Book of Business status + New Opportunity + Callback
+ if(lead.stage === 'won' || lead.stage === 'lost'){
+  if(lead.stage === 'won'){
+   h += '<div class="card" style="margin-top:12px;border:2px solid var(--grn);background:var(--gtint)">';
+   var hasCase = pl.some(function(c){ return c.client && c.client.toLowerCase() === lead.name.toLowerCase(); });
+   if(hasCase){
+    h += '<h3 style="color:var(--grn)">✓ Case in Book of Business</h3>';
+    h += '<p style="font-size:12px">This lead has a pipeline case. View it in the Book of Business tab.</p>';
+   } else {
+    h += '<h3 style="color:var(--amb)">⚠ No Pipeline Case Found</h3>';
+    h += '<p style="font-size:12px">This lead is marked Won but has no matching case in the Book of Business.</p>';
+    h += '<button class="btn btn-amb" onclick="createCaseFromLead('+lead.id+')">Create Case Now</button>';
+   }
+   h += '</div>';
+  }
+  // New Opportunity button
+  h += '<div class="card" style="margin-top:12px;border:2px solid var(--pri);background:var(--ptint)">';
+  h += '<h3 style="color:var(--pri)">🔄 Repeat Business</h3>';
+  h += '<p style="font-size:12px;margin-bottom:8px">Reopen this client for a new product opportunity. Their contact info stays, history is archived.</p>';
+  h += '<button class="btn btn-pri" onclick="promptReopenLead('+lead.id+')">New Opportunity</button>';
   h += '</div>';
+  // Callback scheduling for won/lost
+  h += '<div class="card" style="margin-top:12px;border:2px solid #e74c3c;background:#fff5f5">';
+  h += '<h3 style="color:#e74c3c">📅 Schedule Callback</h3>';
+  if(lead.callbackDate){
+   h += '<p style="font-size:12px;margin-bottom:8px">Callback set for <b>'+lead.callbackDate+'</b>';
+   if(lead.callbackDate <= toYMD(new Date())) h += ' <span class="badge" style="background:#e74c3c;color:#fff;font-size:10px">DUE TODAY</span>';
+   h += '</p>';
+   h += '<div style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="clearCallback('+lead.id+')">Clear Callback</button>';
+   h += '<button class="btn btn-sm btn-pri" onclick="promptReopenLead('+lead.id+')">Convert to New Opportunity</button></div>';
+  } else {
+   h += '<p style="font-size:12px;margin-bottom:8px">Set a future date and this client will appear in your Call Queue automatically.</p>';
+   h += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
+   h += '<button class="btn btn-sm" onclick="setCallbackQuick('+lead.id+',7)" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">1 Week</button>';
+   h += '<button class="btn btn-sm" onclick="setCallbackQuick('+lead.id+',14)" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">2 Weeks</button>';
+   h += '<button class="btn btn-sm" onclick="setCallbackQuick('+lead.id+',30)" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">1 Month</button>';
+   h += '<button class="btn btn-sm" onclick="setCallbackQuick('+lead.id+',60)" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">2 Months</button>';
+   h += '<button class="btn btn-sm" onclick="setCallbackQuick('+lead.id+',90)" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">3 Months</button>';
+   h += '<input type="date" id="cb_custom_'+lead.id+'" onchange="setCallbackCustom('+lead.id+')" style="font-size:11px;padding:3px">';
+   h += '</div>';
+  }
+  h += '</div>';
+  // Past deals history
+  if(lead.pastDeals && lead.pastDeals.length > 0){
+   h += '<div class="card" style="margin-top:12px">';
+   h += '<h3>📋 Past Deals ('+lead.pastDeals.length+')</h3>';
+   lead.pastDeals.forEach(function(d){
+    var dDate = new Date(d.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    var outcome = d.stage === 'won' ? '✅ Won' : d.stage === 'lost' ? '❌ Lost' : d.stage;
+    h += '<div style="padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12px">';
+    h += '<b>'+d.interest+'</b> — '+outcome;
+    if(d.wonReason) h += ' ('+d.wonReason+')';
+    if(d.lostReason) h += ' ('+d.lostReason+')';
+    h += ' · '+d.callCount+' calls · '+dDate;
+    h += '</div>';
+   });
+   h += '</div>';
+  }
+ }
+
+ // Callback date for active leads (e.g., "call me in a month")
+ if(lead.stage !== 'won' && lead.stage !== 'lost' && lead.callbackDate){
+  h += '<div class="card" style="margin-top:12px;border:1px solid #e74c3c;background:#fff5f5">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center">';
+  h += '<div><span style="font-size:13px">📅</span> <b style="font-size:12px">Callback: '+lead.callbackDate+'</b>';
+  if(lead.callbackDate <= toYMD(new Date())) h += ' <span class="badge" style="background:#e74c3c;color:#fff;font-size:10px">DUE</span>';
+  h += '</div>';
+  h += '<button class="btn btn-sm btn-outline" onclick="clearCallback('+lead.id+')" style="font-size:10px">Clear</button>';
+  h += '</div></div>';
  }
 
  // Schedule meeting section
@@ -5565,7 +6203,8 @@ function renderCDConversion(){
   }
   h += '<tr style="font-weight:700;background:var(--gtint)"><td>TOTAL</td><td colspan="2" style="text-align:center">'+fmt(cdBal)+'</td><td style="text-align:center">'+fmt(totalCdEarnings)+' net</td><td colspan="2" style="text-align:center;color:var(--grn)">'+fmt(annBal)+'</td><td style="text-align:center;color:var(--grn)">'+fmt(totalAnnEarnings)+' (tax-deferred)</td></tr>';
   h += '</table>';
-  var diff = annBal - cdBal;
+  var cdNetValue = amt + totalCdEarnings;
+  var diff = annBal - cdNetValue;
   if(diff > 0){
    h += '<div style="padding:8px;background:var(--gtint);border-radius:var(--radius);font-size:12px;text-align:center"><b style="color:var(--grn)">Annuity wins by '+fmt(diff)+'</b> after '+termYears+' years — and the annuity earnings haven\'t been taxed yet!</div>';
   }
