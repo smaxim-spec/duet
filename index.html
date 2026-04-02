@@ -3889,23 +3889,47 @@ function scheduleAppt(leadId){
  });
  saveLeads();
 
- // Open Google Calendar
- var startDate = dateEl.value.replace(/-/g,'');
- var hr = parseInt(time.split(':')[0]);
- var mn = time.split(':')[1] || '00';
- // Convert to 24hr
- if(hr < 9) hr += 12; // 1:00 = 13:00, etc.
- var startTime = (hr<10?'0':'') + hr + mn + '00';
- var endHr = mn === '30' ? hr + 1 : hr;
- var endMn = mn === '30' ? '00' : '30';
- var endTime = (endHr<10?'0':'') + endHr + endMn + '00';
+ // Create Google Calendar event
  var calPrefix = MEETING_CAL_PREFIX[type] || 'Meeting';
- var calTitle = encodeURIComponent(calPrefix + ' - ' + lead.name);
- var calLoc = encodeURIComponent(loc);
- var calDetails = encodeURIComponent('Client: ' + lead.name + '\\nPhone: ' + lead.phone + '\\nInterest: ' + lead.interest + '\\nSource: ' + lead.source + (lead.agent ? '\\nReferred by: ' + lead.agent : '') + '\\n\\nNotes: ' + (lead.notes || ''));
- var calUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + calTitle + '&dates=' + startDate + 'T' + startTime + '/' + startDate + 'T' + endTime + '&location=' + calLoc + '&details=' + calDetails;
- window.open(calUrl, '_blank');
- showToast('Meeting scheduled! Google Calendar opened.', 5000);
+ var calTitleStr = calPrefix + ' - ' + lead.name;
+ var calDescStr = 'Client: ' + lead.name + '\nPhone: ' + lead.phone + '\nInterest: ' + lead.interest + '\nSource: ' + lead.source + (lead.agent ? '\nReferred by: ' + lead.agent : '') + (lead.notes ? '\n\nNotes: ' + lead.notes : '');
+
+ var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+ if(isLocal){
+  fetch('/calendar/create', {
+   method: 'POST',
+   headers: {'Content-Type': 'application/json'},
+   body: JSON.stringify({
+    title: calTitleStr,
+    date: dateEl.value,
+    time: time,
+    duration: 30,
+    location: loc,
+    description: calDescStr
+   })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+   if(data.status === 'created'){
+    showToast('✅ Meeting scheduled & added to Google Calendar!', 5000);
+   } else {
+    showToast('Meeting saved. Calendar error: ' + (data.error||'unknown'), 5000);
+   }
+  })
+  .catch(function(){ showToast('Meeting saved locally. Could not reach calendar.', 5000); });
+ } else {
+  var startDate = dateEl.value.replace(/-/g,'');
+  var hr = parseInt(time.split(':')[0]);
+  var mn = time.split(':')[1] || '00';
+  if(hr < 9) hr += 12;
+  var startTime = (hr<10?'0':'') + hr + mn + '00';
+  var endHr = mn === '30' ? hr + 1 : hr;
+  var endMn = mn === '30' ? '00' : '30';
+  var endTime = (endHr<10?'0':'') + endHr + endMn + '00';
+  var calUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(calTitleStr) + '&dates=' + startDate + 'T' + startTime + '/' + startDate + 'T' + endTime + '&location=' + encodeURIComponent(loc) + '&details=' + encodeURIComponent(calDescStr);
+  window.open(calUrl, '_blank');
+  showToast('Meeting scheduled! Google Calendar opened.', 5000);
+ }
  renderCRM();
 }
 
@@ -7143,39 +7167,11 @@ function renderQuickBook(){
  h += '<div id="qb_linked" style="margin-bottom:8px"></div>';
 
  // Next 5 business days with available slots
- h += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:10px">';
- var today = new Date();
- today.setHours(0,0,0,0);
- var dayOffset = 0;
- var daysShown = 0;
- while(daysShown < 5){
-  var d = new Date(today);
-  d.setDate(today.getDate() + dayOffset);
-  dayOffset++;
-  if(d.getDay() === 0 || d.getDay() === 6) continue;
-  var ds = d.toISOString().substring(0,10);
-  var isToday = ds === today.toISOString().substring(0,10);
-  var bookedTimes = appointments.filter(function(a){return a.date === ds}).map(function(a){return a.time});
-  var dayLabel = d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
-  h += '<div class="qb-day'+(isToday?' today':'')+'">';
-  h += '<div style="font-weight:700;font-size:10px;margin-bottom:4px">'+dayLabel+'</div>';
-  var availCount = 0;
-  APPT_SLOTS.forEach(function(slot){
-   var taken = bookedTimes.indexOf(slot) >= 0;
-   if(taken){
-    var who = appointments.find(function(a){return a.date===ds&&a.time===slot});
-    h += '<div class="qb-slot taken" title="'+(who?who.clientName:'Booked')+'">'+slot+'</div>';
-   } else {
-    var sel = qbSelectedSlot && qbSelectedSlot.date === ds && qbSelectedSlot.time === slot;
-    h += '<div class="qb-slot'+(sel?' picked':'')+'" onclick="qbPickSlot(\''+ds+'\',\''+slot+'\',this)">'+slot+'</div>';
-    availCount++;
-   }
-  });
-  if(availCount === 0) h += '<div style="font-size:9px;color:var(--muted);margin-top:4px">Full</div>';
-  h += '</div>';
-  daysShown++;
- }
+ h += '<div id="qb_slots_grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:10px">';
+ h += '<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:12px">Loading calendar availability...</div>';
  h += '</div>';
+ // Fetch real Google Calendar availability
+ qbLoadAvailability();
 
  // Selected slot display + book button
  h += '<div id="qb_selected" style="margin-bottom:8px">';
@@ -7196,6 +7192,67 @@ function renderQuickBook(){
  h += '</div>'; // end side-by-side
 
  document.getElementById('qb_content').innerHTML = h;
+}
+
+var qbGoogleBusy = {}; // { 'YYYY-MM-DD': ['10:00','1:30',...] }
+
+function qbLoadAvailability(){
+ var today = new Date();
+ var startStr = today.toISOString().substring(0,10);
+ // Try local server calendar API first
+ fetch('/calendar/busy?start='+startStr+'&days=5')
+ .then(function(r){ return r.json(); })
+ .then(function(data){
+  if(data.busy) qbGoogleBusy = data.busy;
+  qbRenderSlots();
+ })
+ .catch(function(){
+  // Fallback: render without Google Calendar data
+  qbGoogleBusy = {};
+  qbRenderSlots();
+ });
+}
+
+function qbRenderSlots(){
+ var grid = document.getElementById('qb_slots_grid');
+ if(!grid) return;
+ var h = '';
+ var today = new Date();
+ today.setHours(0,0,0,0);
+ var dayOffset = 0;
+ var daysShown = 0;
+ while(daysShown < 5){
+  var d = new Date(today);
+  d.setDate(today.getDate() + dayOffset);
+  dayOffset++;
+  if(d.getDay() === 0 || d.getDay() === 6) continue;
+  var ds = d.toISOString().substring(0,10);
+  var isToday = ds === today.toISOString().substring(0,10);
+  var bookedTimes = appointments.filter(function(a){return a.date === ds}).map(function(a){return a.time});
+  var googleBusy = qbGoogleBusy[ds] || [];
+  var dayLabel = d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  h += '<div class="qb-day'+(isToday?' today':'')+'">';
+  h += '<div style="font-weight:700;font-size:10px;margin-bottom:4px">'+dayLabel+'</div>';
+  var availCount = 0;
+  APPT_SLOTS.forEach(function(slot){
+   var duetBooked = bookedTimes.indexOf(slot) >= 0;
+   var calBusy = googleBusy.indexOf(slot) >= 0;
+   if(duetBooked){
+    var who = appointments.find(function(a){return a.date===ds&&a.time===slot});
+    h += '<div class="qb-slot taken" title="'+(who?who.clientName:'Booked')+'">'+slot+'</div>';
+   } else if(calBusy){
+    h += '<div class="qb-slot taken" title="Busy (Google Calendar)" style="background:#ffe0e0;color:#c0392b;text-decoration:line-through">'+slot+'</div>';
+   } else {
+    var sel = qbSelectedSlot && qbSelectedSlot.date === ds && qbSelectedSlot.time === slot;
+    h += '<div class="qb-slot'+(sel?' picked':'')+'" onclick="qbPickSlot(\''+ds+'\',\''+slot+'\',this)">'+slot+'</div>';
+    availCount++;
+   }
+  });
+  if(availCount === 0) h += '<div style="font-size:9px;color:var(--muted);margin-top:4px">Full</div>';
+  h += '</div>';
+  daysShown++;
+ }
+ grid.innerHTML = h;
 }
 
 function qbPickSlot(date, time, el){
@@ -7279,23 +7336,52 @@ function qbBook(){
  saveAppts();
  saveLeads();
 
- // Open Google Calendar
- var startDate = qbSelectedSlot.date.replace(/-/g,'');
- var hr = parseInt(qbSelectedSlot.time.split(':')[0]);
- var mn = qbSelectedSlot.time.split(':')[1] || '00';
- if(hr < 9) hr += 12;
- var startTime = (hr<10?'0':'') + hr + mn + '00';
- var endHr = mn === '30' ? hr + 1 : hr;
- var endMn = mn === '30' ? '00' : '30';
- var endTime = (endHr<10?'0':'') + endHr + endMn + '00';
+ // Create Google Calendar event via API
  var calPrefix = MEETING_CAL_PREFIX[type] || 'Meeting';
- var calTitle = encodeURIComponent(calPrefix + ' - ' + lead.name);
- var calLoc = encodeURIComponent(loc);
- var calDetails = encodeURIComponent('Client: ' + lead.name + '\nPhone: ' + lead.phone + '\nInterest: ' + lead.interest + (lead.agent ? '\nReferred by: ' + lead.agent : ''));
- var calUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + calTitle + '&dates=' + startDate + 'T' + startTime + '/' + startDate + 'T' + endTime + '&location=' + calLoc + '&details=' + calDetails;
- window.open(calUrl, '_blank');
+ var calTitle = calPrefix + ' - ' + lead.name;
+ var calDesc = 'Client: ' + lead.name + '\nPhone: ' + (lead.phone||'') + '\nInterest: ' + (lead.interest||'') + (lead.agent ? '\nReferred by: ' + lead.agent : '');
 
- showToast('Meeting booked! ' + lead.name + ' — ' + qbSelectedSlot.date + ' at ' + qbSelectedSlot.time, 5000);
+ // Try API first (desktop), fallback to URL (mobile/GitHub Pages)
+ var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+ if(isLocal){
+  fetch('/calendar/create', {
+   method: 'POST',
+   headers: {'Content-Type': 'application/json'},
+   body: JSON.stringify({
+    title: calTitle,
+    date: qbSelectedSlot.date,
+    time: qbSelectedSlot.time,
+    duration: 30,
+    location: loc,
+    description: calDesc
+   })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+   if(data.status === 'created'){
+    showToast('✅ Booked! ' + lead.name + ' — ' + qbSelectedSlot.date + ' at ' + qbSelectedSlot.time + ' — Added to Google Calendar', 5000);
+   } else {
+    showToast('Meeting booked locally. Calendar error: ' + (data.error||'unknown'), 5000);
+   }
+  })
+  .catch(function(){
+   showToast('Meeting booked locally. Could not add to Google Calendar.', 5000);
+  });
+ } else {
+  // Mobile / GitHub Pages — open calendar URL
+  var startDate = qbSelectedSlot.date.replace(/-/g,'');
+  var hr = parseInt(qbSelectedSlot.time.split(':')[0]);
+  var mn = qbSelectedSlot.time.split(':')[1] || '00';
+  if(hr < 9) hr += 12;
+  var startTime = (hr<10?'0':'') + hr + mn + '00';
+  var endHr = mn === '30' ? hr + 1 : hr;
+  var endMn = mn === '30' ? '00' : '30';
+  var endTime = (endHr<10?'0':'') + endHr + endMn + '00';
+  var calUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(calTitle) + '&dates=' + startDate + 'T' + startTime + '/' + startDate + 'T' + endTime + '&location=' + encodeURIComponent(loc) + '&details=' + encodeURIComponent(calDesc);
+  window.open(calUrl, '_blank');
+  showToast('Meeting booked! ' + lead.name + ' — opening Google Calendar...', 5000);
+ }
+
  closeQuickBook();
  renderCRM();
 }
