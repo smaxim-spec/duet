@@ -109,69 +109,9 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 .amber-text{color:var(--amb)}
 .red-text{color:#c0392b}
 .email-settings .form-row{margin-bottom:12px}
-@media(max-width:768px){
-.grid2,.grid3,.grid4{grid-template-columns:1fr}
-/* Hide desktop tab bar */
-.tabs{display:none!important}
-/* Mobile bottom nav */
-.mobile-nav{display:flex!important;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:2px solid var(--border);z-index:9000;padding:4px 0 env(safe-area-inset-bottom,4px) 0;box-shadow:0 -2px 10px rgba(0,0,0,.1)}
-.mobile-nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 2px;font-size:9px;font-weight:600;color:var(--muted);cursor:pointer;border:none;background:none;gap:2px}
-.mobile-nav-btn.active{color:var(--pri)}
-.mobile-nav-btn .mn-icon{font-size:20px;line-height:1}
-/* Topbar compact */
-.topbar{padding:8px 14px;flex-direction:column;align-items:flex-start;gap:2px}
-.topbar h1{font-size:14px}
-.topbar .meta{font-size:9px;display:none}
-/* Panels breathe */
-.panel{padding:12px 10px;margin-bottom:60px}
-/* CRM queue cards — bigger touch targets */
-.crm-queue{padding:16px 16px;margin-bottom:12px;flex-direction:column;align-items:flex-start;gap:10px}
-.crm-queue .q-name{font-size:18px}
-.crm-queue .q-meta{font-size:14px}
-.crm-queue .q-actions{width:100%;display:flex;gap:6px;flex-wrap:wrap}
-.crm-queue .q-actions .btn{flex:1;min-width:70px;padding:10px 8px;font-size:12px;text-align:center}
-/* Buttons bigger for thumbs */
-.btn{padding:10px 14px;font-size:13px;min-height:42px}
-.btn-sm{padding:8px 12px;font-size:12px;min-height:36px}
-/* Tables scroll horizontal */
-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
-thead,tbody,tr{display:table;width:100%;table-layout:auto}
-table{display:table;width:100%}
-.tbl{font-size:11px}
-.tbl td,.tbl th{padding:6px 8px}
-/* Smart search bigger */
-#smartSearchInput{font-size:16px!important;padding:12px!important}
-/* Lead detail cards */
-.na-section{padding:10px}
-/* Call log buttons */
-.call-log-entry{font-size:12px;padding:6px 0}
-/* Cadence badge bigger */
-.cadence-badge{font-size:11px;padding:4px 10px}
-/* Report area */
-.report-area{padding:10px}
-/* Quick book */
-.qb-modal{width:100%;max-width:100%;border-radius:0;top:0;left:0;transform:none;max-height:100vh;padding:14px}
-/* Settings modal */
-.settings-modal{width:100%;max-width:100%;border-radius:0;top:0;left:0;transform:none;max-height:100vh;padding:14px}
-/* More menu overlay */
-.mobile-more-menu{display:none;position:fixed;bottom:56px;left:0;right:0;background:#fff;border-top:1px solid var(--border);z-index:8999;padding:12px;box-shadow:0 -4px 20px rgba(0,0,0,.15);border-radius:16px 16px 0 0}
-.mobile-more-menu.show{display:block}
-.mobile-more-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:8px;font-size:14px;font-weight:500;color:var(--txt);cursor:pointer}
-.mobile-more-item:hover,.mobile-more-item:active{background:var(--ptint)}
-.mobile-more-item .mm-icon{font-size:18px;width:24px;text-align:center}
-/* Funnel stages stack on mobile */
-.lead-funnel{flex-wrap:wrap}
-.funnel-stage{min-width:45%;flex:1 1 45%}
-/* Bulk import grid stack */
-.bulk-row{grid-template-columns:1fr 1fr;gap:4px}
-/* Hide FAB on mobile — Quick Book in nav */
-.qb-fab{display:none!important}
-}
 /* Desktop: hide mobile elements */
-@media(min-width:769px){
-.mobile-nav{display:none!important}
-.mobile-more-menu{display:none!important}
-}
+.mobile-nav{display:none}
+.mobile-more-menu{display:none}
 .crm-queue{border-left:4px solid var(--pri);padding:10px 14px;margin-bottom:8px;background:var(--card);border-radius:0 var(--radius) var(--radius) 0;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow)}
 .crm-queue:hover{background:var(--ptint)}
 .crm-queue .q-name{font-weight:600;font-size:15px}
@@ -200,6 +140,43 @@ table{display:table;width:100%}
 .schedule-slot:hover{background:var(--ptint);border-color:var(--pri)}
 .schedule-slot.booked{background:#eee;color:#999;cursor:not-allowed;text-decoration:line-through}
 .schedule-slot.selected{background:var(--pri);color:#fff;border-color:var(--pri)}
+@media(max-width:768px){
+.grid2,.grid3,.grid4{grid-template-columns:1fr}
+.tabs{display:none!important}
+.mobile-nav{display:flex!important;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:2px solid var(--border);z-index:9000;padding:4px 0 env(safe-area-inset-bottom,4px) 0;box-shadow:0 -2px 10px rgba(0,0,0,.1)}
+.mobile-nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 2px;font-size:9px;font-weight:600;color:var(--muted);cursor:pointer;border:none;background:none;gap:2px}
+.mobile-nav-btn.active{color:var(--pri)}
+.mobile-nav-btn .mn-icon{font-size:20px;line-height:1}
+.topbar{padding:8px 14px;flex-direction:column;align-items:flex-start;gap:2px}
+.topbar h1{font-size:14px}
+.topbar .meta{display:none}
+.panel{padding:12px 10px;margin-bottom:60px}
+.crm-queue{padding:16px 16px;margin-bottom:12px;flex-direction:column;align-items:flex-start;gap:10px;border-left-width:5px}
+.crm-queue .q-name{font-size:18px}
+.crm-queue .q-meta{font-size:14px}
+.crm-queue .q-actions{width:100%;display:flex;gap:6px;flex-wrap:wrap}
+.crm-queue .q-actions .btn{flex:1;min-width:70px;padding:10px 8px;font-size:13px;text-align:center}
+.btn{padding:10px 14px;font-size:13px;min-height:42px}
+.btn-sm{padding:8px 12px;font-size:12px;min-height:36px}
+.tbl{font-size:11px}
+.tbl td,.tbl th{padding:6px 8px}
+#smartSearchInput{font-size:16px!important;padding:12px!important}
+.na-section{padding:10px}
+.call-log-entry{font-size:12px;padding:6px 0}
+.cadence-badge{font-size:12px;padding:4px 10px}
+.report-area{padding:10px}
+.qb-modal{width:100%;max-width:100%;border-radius:0;top:0;left:0;transform:none;max-height:100vh;padding:14px}
+.settings-modal{width:100%;max-width:100%;border-radius:0;top:0;left:0;transform:none;max-height:100vh;padding:14px}
+.mobile-more-menu{display:none;position:fixed;bottom:56px;left:0;right:0;background:#fff;border-top:1px solid var(--border);z-index:8999;padding:12px;box-shadow:0 -4px 20px rgba(0,0,0,.15);border-radius:16px 16px 0 0}
+.mobile-more-menu.show{display:block!important}
+.mobile-more-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:8px;font-size:14px;font-weight:500;color:var(--txt);cursor:pointer}
+.mobile-more-item:hover,.mobile-more-item:active{background:var(--ptint)}
+.mobile-more-item .mm-icon{font-size:18px;width:24px;text-align:center}
+.lead-funnel{flex-wrap:wrap}
+.funnel-stage{min-width:45%;flex:1 1 45%}
+.bulk-row{grid-template-columns:1fr 1fr;gap:4px}
+.qb-fab{display:none!important}
+}
 </style>
 </head>
 <body>
@@ -4689,13 +4666,12 @@ function renderCallQueue(){
  var nowTime = now.getHours()*60 + now.getMinutes();
  var bfTodayMeetings = appointments.filter(function(a){
   if(a.date !== todayISO) return false;
-  // Parse meeting time (e.g. "10:00 AM", "2:30 PM") and hide if passed
   if(a.time){
-   var tp = a.time.match(/(\d+):(\d+)\s*(AM|PM)/i);
+   var tp = a.time.match(/(\d+):(\d+)/);
    if(tp){
-    var hr = parseInt(tp[1]); var mn = parseInt(tp[2]); var ampm = tp[3].toUpperCase();
-    if(ampm === 'PM' && hr !== 12) hr += 12;
-    if(ampm === 'AM' && hr === 12) hr = 0;
+    var hr = parseInt(tp[1]); var mn = parseInt(tp[2]);
+    // APPT_SLOTS use 1:00-3:30 for PM (no AM/PM label) — hours < 9 are afternoon
+    if(hr < 9) hr += 12;
     if((hr*60+mn) < nowTime) return false;
    }
   }
