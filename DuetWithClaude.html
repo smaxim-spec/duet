@@ -125,9 +125,9 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 /* Panels breathe */
 .panel{padding:12px 10px;margin-bottom:60px}
 /* CRM queue cards — bigger touch targets */
-.crm-queue{padding:14px 14px;margin-bottom:10px;flex-direction:column;align-items:flex-start;gap:8px}
-.crm-queue .q-name{font-size:15px}
-.crm-queue .q-meta{font-size:12px}
+.crm-queue{padding:16px 16px;margin-bottom:12px;flex-direction:column;align-items:flex-start;gap:10px}
+.crm-queue .q-name{font-size:18px}
+.crm-queue .q-meta{font-size:14px}
 .crm-queue .q-actions{width:100%;display:flex;gap:6px;flex-wrap:wrap}
 .crm-queue .q-actions .btn{flex:1;min-width:70px;padding:10px 8px;font-size:12px;text-align:center}
 /* Buttons bigger for thumbs */
@@ -172,10 +172,10 @@ table{display:table;width:100%}
 .mobile-nav{display:none!important}
 .mobile-more-menu{display:none!important}
 }
-.crm-queue{border-left:4px solid var(--pri);padding:8px 12px;margin-bottom:6px;background:var(--card);border-radius:0 var(--radius) var(--radius) 0;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow)}
+.crm-queue{border-left:4px solid var(--pri);padding:10px 14px;margin-bottom:8px;background:var(--card);border-radius:0 var(--radius) var(--radius) 0;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow)}
 .crm-queue:hover{background:var(--ptint)}
-.crm-queue .q-name{font-weight:600;font-size:13px}
-.crm-queue .q-meta{font-size:11px;color:var(--muted)}
+.crm-queue .q-name{font-weight:600;font-size:15px}
+.crm-queue .q-meta{font-size:12px;color:var(--muted)}
 .temp-hot{color:#e74c3c;font-weight:700}
 .temp-warm{color:var(--amb);font-weight:700}
 .temp-cool{color:#3498db;font-weight:700}
@@ -4686,7 +4686,21 @@ function renderCallQueue(){
  var bfCallbacksDue = leads.filter(function(l){ return l.callbackDate && l.callbackDate <= todayISO; });
 
  // Today's meetings
- var bfTodayMeetings = appointments.filter(function(a){ return a.date === todayISO; }).sort(function(a,b){ return a.time < b.time ? -1 : 1; });
+ var nowTime = now.getHours()*60 + now.getMinutes();
+ var bfTodayMeetings = appointments.filter(function(a){
+  if(a.date !== todayISO) return false;
+  // Parse meeting time (e.g. "10:00 AM", "2:30 PM") and hide if passed
+  if(a.time){
+   var tp = a.time.match(/(\d+):(\d+)\s*(AM|PM)/i);
+   if(tp){
+    var hr = parseInt(tp[1]); var mn = parseInt(tp[2]); var ampm = tp[3].toUpperCase();
+    if(ampm === 'PM' && hr !== 12) hr += 12;
+    if(ampm === 'AM' && hr === 12) hr = 0;
+    if((hr*60+mn) < nowTime) return false;
+   }
+  }
+  return true;
+ }).sort(function(a,b){ return a.time < b.time ? -1 : 1; });
  var bfTomorrowMeetings = [];
  var tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate()+1);
  var tomorrowISO = toYMD(tomorrow);
