@@ -65,9 +65,9 @@ def get_busy_times(start_date, num_days=5):
             dates.append(d)
         d += timedelta(days=1)
 
-    # Query range
-    time_min = dates[0].replace(hour=0, minute=0).isoformat() + 'Z'
-    time_max = (dates[-1].replace(hour=23, minute=59) + timedelta(minutes=1)).isoformat() + 'Z'
+    # Query range — use Eastern time offset
+    time_min = dates[0].replace(hour=0, minute=0).strftime('%Y-%m-%dT%H:%M:%S') + '-04:00'
+    time_max = dates[-1].replace(hour=23, minute=59).strftime('%Y-%m-%dT%H:%M:%S') + '-04:00'
 
     # FreeBusy query
     body = {
@@ -78,6 +78,21 @@ def get_busy_times(start_date, num_days=5):
     }
     result = service.freebusy().query(body=body).execute()
     busy_periods = result.get('calendars', {}).get(CALENDAR_ID, {}).get('busy', [])
+
+    # Parse busy periods into local datetime pairs
+    # API returns times with offset like '2026-04-03T10:00:00-04:00'
+    parsed_busy = []
+    for bp in busy_periods:
+        # Parse ISO with offset, then strip tzinfo to get naive local time
+        start_str = bp['start']
+        end_str = bp['end']
+        # fromisoformat handles the -04:00 offset — gives us aware datetime
+        bp_start_aware = datetime.fromisoformat(start_str)
+        bp_end_aware = datetime.fromisoformat(end_str)
+        # Convert: the offset already represents local time, just strip tzinfo
+        bp_start_local = bp_start_aware.replace(tzinfo=None)
+        bp_end_local = bp_end_aware.replace(tzinfo=None)
+        parsed_busy.append((bp_start_local, bp_end_local))
 
     # Convert busy periods to 30-min slot format
     # Slots: 10:00, 10:30, 11:00, 11:30, 12:00, 12:30, 1:00, 1:30, 2:00, 2:30, 3:00
@@ -95,12 +110,7 @@ def get_busy_times(start_date, num_days=5):
             slot_start = date.replace(hour=sh, minute=sm, second=0)
             slot_end = slot_start + timedelta(minutes=30)
             # Check if any busy period overlaps this slot
-            for bp in busy_periods:
-                bp_start = datetime.fromisoformat(bp['start'].replace('Z', '+00:00')).replace(tzinfo=None)
-                bp_end = datetime.fromisoformat(bp['end'].replace('Z', '+00:00')).replace(tzinfo=None)
-                # Adjust for timezone (EST = UTC-4 in April, EDT)
-                bp_start_local = bp_start - timedelta(hours=4)
-                bp_end_local = bp_end - timedelta(hours=4)
+            for bp_start_local, bp_end_local in parsed_busy:
                 if bp_start_local < slot_end and bp_end_local > slot_start:
                     # Format slot like APPT_SLOTS: "10:00", "1:00", etc.
                     display_hr = sh if sh <= 12 else sh - 12
