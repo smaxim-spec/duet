@@ -94,11 +94,12 @@ def get_busy_times(start_date, num_days=5):
         bp_end_local = bp_end_aware.replace(tzinfo=None)
         parsed_busy.append((bp_start_local, bp_end_local))
 
-    # Convert busy periods to 1-hour slot format
-    # Slots: 8:30, 9:30, 10:30, 11:30, 12:30, 1:30, 2:30, 3:30, 4:30
+    # Convert busy periods to 30-min display slots (bookings are 1hr on calendar)
+    # Slots: 8:30-4:30 every 30 min
     slot_times = [
-        (8, 30), (9, 30), (10, 30), (11, 30),
-        (12, 30), (13, 30), (14, 30), (15, 30), (16, 30)
+        (8, 30), (9, 0), (9, 30), (10, 0), (10, 30), (11, 0), (11, 30),
+        (12, 0), (12, 30), (13, 0), (13, 30), (14, 0), (14, 30),
+        (15, 0), (15, 30), (16, 0), (16, 30)
     ]
 
     busy_by_date = {}
@@ -107,7 +108,7 @@ def get_busy_times(start_date, num_days=5):
         busy_slots = []
         for sh, sm in slot_times:
             slot_start = date.replace(hour=sh, minute=sm, second=0)
-            slot_end = slot_start + timedelta(minutes=60)
+            slot_end = slot_start + timedelta(minutes=30)
             # Check if any busy period overlaps this slot
             for bp_start_local, bp_end_local in parsed_busy:
                 if bp_start_local < slot_end and bp_end_local > slot_start:
