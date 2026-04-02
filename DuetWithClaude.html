@@ -7147,11 +7147,8 @@ function renderQuickBook(){
  h += '<button onclick="closeQuickBook()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">&times;</button>';
  h += '</div>';
 
- // Side-by-side: booking form left, Google Calendar right
- h += '<div style="display:flex;gap:16px;align-items:stretch">';
-
- // LEFT: Booking form
- h += '<div style="flex:1;min-width:0">';
+ // Booking form
+ h += '<div>';
 
  // Client input row
  h += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">';
@@ -7182,14 +7179,7 @@ function renderQuickBook(){
  h += '</div>';
  h += '<button class="btn btn-pri" onclick="qbBook()" style="width:100%;padding:10px;font-size:14px">Book & Add to Google Calendar</button>';
 
- h += '</div>'; // end left
-
- // RIGHT: Google Calendar embed
- h += '<div style="width:420px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">';
- h += '<iframe src="https://calendar.google.com/calendar/embed?src=smaxim%40maximent.com&ctz=America%2FNew_York&mode=WEEK" style="border:0;width:100%;height:100%;min-height:500px" frameborder="0" scrolling="no"></iframe>';
- h += '</div>';
-
- h += '</div>'; // end side-by-side
+ h += '</div>'; // end content
 
  document.getElementById('qb_content').innerHTML = h;
 }
