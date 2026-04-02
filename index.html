@@ -934,7 +934,7 @@ var MEETING_COLORS = {
  'In-Person: Sarasota Office':'#534AB7',
  'Zoom':'#2980B9'
 };
-var APPT_SLOTS = ['10:00','10:30','11:00','11:30','12:00','12:30','1:00','1:30','2:00','2:30','3:00'];
+var APPT_SLOTS = ['8:30','9:30','10:30','11:30','12:30','1:30','2:30','3:30','4:30'];
 var CALL_BLOCKS = [{label:'Morning (9-10am)',start:9,end:10},{label:'Afternoon (1-2pm)',start:13,end:14},{label:'Evening (5:30-6:30pm)',start:17.5,end:18.5}];
 var INTEREST_CATS = ['Life Insurance','Annuity','IUL / Universal Life','Banking / CD'];
 
@@ -3903,7 +3903,7 @@ function scheduleAppt(leadId){
     title: calTitleStr,
     date: dateEl.value,
     time: time,
-    duration: 30,
+    duration: 60,
     location: loc,
     description: calDescStr
    })
@@ -3923,8 +3923,8 @@ function scheduleAppt(leadId){
   var mn = time.split(':')[1] || '00';
   if(hr < 9) hr += 12;
   var startTime = (hr<10?'0':'') + hr + mn + '00';
-  var endHr = mn === '30' ? hr + 1 : hr;
-  var endMn = mn === '30' ? '00' : '30';
+  var endHr = hr + 1;
+  var endMn = mn;
   var endTime = (endHr<10?'0':'') + endHr + endMn + '00';
   var calUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(calTitleStr) + '&dates=' + startDate + 'T' + startTime + '/' + startDate + 'T' + endTime + '&location=' + encodeURIComponent(loc) + '&details=' + encodeURIComponent(calDescStr);
   window.open(calUrl, '_blank');
@@ -7351,7 +7351,7 @@ function qbBook(){
     title: calTitle,
     date: qbSelectedSlot.date,
     time: qbSelectedSlot.time,
-    duration: 30,
+    duration: 60,
     location: loc,
     description: calDesc
    })
@@ -7374,8 +7374,8 @@ function qbBook(){
   var mn = qbSelectedSlot.time.split(':')[1] || '00';
   if(hr < 9) hr += 12;
   var startTime = (hr<10?'0':'') + hr + mn + '00';
-  var endHr = mn === '30' ? hr + 1 : hr;
-  var endMn = mn === '30' ? '00' : '30';
+  var endHr = hr + 1;
+  var endMn = mn;
   var endTime = (endHr<10?'0':'') + endHr + endMn + '00';
   var calUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(calTitle) + '&dates=' + startDate + 'T' + startTime + '/' + startDate + 'T' + endTime + '&location=' + encodeURIComponent(loc) + '&details=' + encodeURIComponent(calDesc);
   window.open(calUrl, '_blank');
