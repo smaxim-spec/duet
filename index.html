@@ -109,7 +109,69 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 .amber-text{color:var(--amb)}
 .red-text{color:#c0392b}
 .email-settings .form-row{margin-bottom:12px}
-@media(max-width:768px){.grid2,.grid3,.grid4{grid-template-columns:1fr}.tabs{gap:0}.tab{padding:8px 12px;font-size:11px}}
+@media(max-width:768px){
+.grid2,.grid3,.grid4{grid-template-columns:1fr}
+/* Hide desktop tab bar */
+.tabs{display:none!important}
+/* Mobile bottom nav */
+.mobile-nav{display:flex!important;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:2px solid var(--border);z-index:9000;padding:4px 0 env(safe-area-inset-bottom,4px) 0;box-shadow:0 -2px 10px rgba(0,0,0,.1)}
+.mobile-nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 2px;font-size:9px;font-weight:600;color:var(--muted);cursor:pointer;border:none;background:none;gap:2px}
+.mobile-nav-btn.active{color:var(--pri)}
+.mobile-nav-btn .mn-icon{font-size:20px;line-height:1}
+/* Topbar compact */
+.topbar{padding:8px 14px;flex-direction:column;align-items:flex-start;gap:2px}
+.topbar h1{font-size:14px}
+.topbar .meta{font-size:9px;display:none}
+/* Panels breathe */
+.panel{padding:12px 10px;margin-bottom:60px}
+/* CRM queue cards — bigger touch targets */
+.crm-queue{padding:14px 14px;margin-bottom:10px;flex-direction:column;align-items:flex-start;gap:8px}
+.crm-queue .q-name{font-size:15px}
+.crm-queue .q-meta{font-size:12px}
+.crm-queue .q-actions{width:100%;display:flex;gap:6px;flex-wrap:wrap}
+.crm-queue .q-actions .btn{flex:1;min-width:70px;padding:10px 8px;font-size:12px;text-align:center}
+/* Buttons bigger for thumbs */
+.btn{padding:10px 14px;font-size:13px;min-height:42px}
+.btn-sm{padding:8px 12px;font-size:12px;min-height:36px}
+/* Tables scroll horizontal */
+table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+thead,tbody,tr{display:table;width:100%;table-layout:auto}
+table{display:table;width:100%}
+.tbl{font-size:11px}
+.tbl td,.tbl th{padding:6px 8px}
+/* Smart search bigger */
+#smartSearchInput{font-size:16px!important;padding:12px!important}
+/* Lead detail cards */
+.na-section{padding:10px}
+/* Call log buttons */
+.call-log-entry{font-size:12px;padding:6px 0}
+/* Cadence badge bigger */
+.cadence-badge{font-size:11px;padding:4px 10px}
+/* Report area */
+.report-area{padding:10px}
+/* Quick book */
+.qb-modal{width:100%;max-width:100%;border-radius:0;top:0;left:0;transform:none;max-height:100vh;padding:14px}
+/* Settings modal */
+.settings-modal{width:100%;max-width:100%;border-radius:0;top:0;left:0;transform:none;max-height:100vh;padding:14px}
+/* More menu overlay */
+.mobile-more-menu{display:none;position:fixed;bottom:56px;left:0;right:0;background:#fff;border-top:1px solid var(--border);z-index:8999;padding:12px;box-shadow:0 -4px 20px rgba(0,0,0,.15);border-radius:16px 16px 0 0}
+.mobile-more-menu.show{display:block}
+.mobile-more-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:8px;font-size:14px;font-weight:500;color:var(--txt);cursor:pointer}
+.mobile-more-item:hover,.mobile-more-item:active{background:var(--ptint)}
+.mobile-more-item .mm-icon{font-size:18px;width:24px;text-align:center}
+/* Funnel stages stack on mobile */
+.lead-funnel{flex-wrap:wrap}
+.funnel-stage{min-width:45%;flex:1 1 45%}
+/* Bulk import grid stack */
+.bulk-row{grid-template-columns:1fr 1fr;gap:4px}
+/* Hide FAB on mobile — Quick Book in nav */
+.qb-fab{display:none!important}
+}
+/* Desktop: hide mobile elements */
+@media(min-width:769px){
+.mobile-nav{display:none!important}
+.mobile-more-menu{display:none!important}
+}
 .crm-queue{border-left:4px solid var(--pri);padding:8px 12px;margin-bottom:6px;background:var(--card);border-radius:0 var(--radius) var(--radius) 0;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow)}
 .crm-queue:hover{background:var(--ptint)}
 .crm-queue .q-name{font-weight:600;font-size:13px}
@@ -7306,4 +7368,52 @@ setInterval(function(){
 <button class="qb-fab" onclick="openQuickBook()" title="Quick Book Meeting">📅</button>
 <div id="qb_overlay" class="qb-overlay" onclick="closeQuickBook()"></div>
 <div id="qb_modal" class="qb-modal"><div id="qb_content"></div></div>
+<!-- Mobile Bottom Nav -->
+<nav class="mobile-nav" id="mobileNav">
+ <button class="mobile-nav-btn active" onclick="mobileShowTab(6)" id="mnCrm"><span class="mn-icon">📞</span>CRM</button>
+ <button class="mobile-nav-btn" onclick="mobileShowTab(5)" id="mnReports"><span class="mn-icon">📊</span>Reports</button>
+ <button class="mobile-nav-btn" onclick="openQuickBook();closeMobileMore()" id="mnBook"><span class="mn-icon">📅</span>Book</button>
+ <button class="mobile-nav-btn" onclick="toggleMobileMore()" id="mnMore"><span class="mn-icon">☰</span>More</button>
+</nav>
+
+<!-- Mobile More Menu -->
+<div class="mobile-more-menu" id="mobileMoreMenu">
+ <div class="mobile-more-item" onclick="mobileShowTab(7)"><span class="mm-icon">📈</span>Funnel Health</div>
+ <div class="mobile-more-item" onclick="mobileShowTab(2)"><span class="mm-icon">💼</span>Book of Business</div>
+ <div class="mobile-more-item" onclick="mobileShowTab(3)"><span class="mm-icon">💰</span>Pay Periods</div>
+ <div class="mobile-more-item" onclick="mobileShowTab(0)"><span class="mm-icon">📋</span>Year Summary</div>
+ <div class="mobile-more-item" onclick="mobileShowTab(1)"><span class="mm-icon">🎯</span>Dashboard</div>
+ <div class="mobile-more-item" onclick="mobileShowTab(8)"><span class="mm-icon">🔄</span>CD → Annuity</div>
+ <div class="mobile-more-item" onclick="mobileShowTab(9)"><span class="mm-icon">⚖️</span>Annuity vs Annuity</div>
+ <div class="mobile-more-item" onclick="openSettingsModal();closeMobileMore()"><span class="mm-icon">⚙️</span>Settings</div>
+</div>
+
+<script>
+function mobileShowTab(n){
+ closeMobileMore();
+ showTab(n);
+ // Update active state on mobile nav
+ var btns = document.querySelectorAll('.mobile-nav-btn');
+ btns.forEach(function(b){ b.classList.remove('active'); });
+ if(n===6) document.getElementById('mnCrm').classList.add('active');
+ else if(n===5) document.getElementById('mnReports').classList.add('active');
+ else document.getElementById('mnMore').classList.add('active');
+}
+function toggleMobileMore(){
+ var menu = document.getElementById('mobileMoreMenu');
+ menu.classList.toggle('show');
+}
+function closeMobileMore(){
+ var menu = document.getElementById('mobileMoreMenu');
+ if(menu) menu.classList.remove('show');
+}
+// Close more menu when tapping outside
+document.addEventListener('click', function(e){
+ var menu = document.getElementById('mobileMoreMenu');
+ var btn = document.getElementById('mnMore');
+ if(menu && menu.classList.contains('show') && !menu.contains(e.target) && !btn.contains(e.target)){
+  menu.classList.remove('show');
+ }
+});
+</script>
 </body></html>
