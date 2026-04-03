@@ -5882,6 +5882,7 @@ function startActionItemVoice(){
  voiceRecognition.continuous = false;
 
  var handled = false;
+ var startTime = Date.now();
 
  function resetMic(){
   if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
@@ -5898,11 +5899,21 @@ function startActionItemVoice(){
   if(handled) return;
   handled = true;
   resetMic();
-  showVoiceActionModal('');
+  // Only show text modal on real errors, not transient ones
+  if(event.error === 'not-allowed' || event.error === 'service-not-allowed'){
+   showVoiceActionModal('');
+  }
+  // For other errors (aborted, network), retry once
  };
 
  voiceRecognition.onend = function(){
   if(handled) return;
+  var elapsed = Date.now() - startTime;
+  // If it ended in under 2 seconds, it never really listened — restart
+  if(elapsed < 2000){
+   try { voiceRecognition.start(); startTime = Date.now(); return; } catch(e){}
+  }
+  // If it ran for a while but got no result, fall back to text
   handled = true;
   resetMic();
   showVoiceActionModal('');
