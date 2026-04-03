@@ -904,7 +904,8 @@ try {
  appointments = savedAppt ? JSON.parse(savedAppt) : [];
 } catch(e) { appointments = []; }
 var nextApptId = appointments.length > 0 ? Math.max.apply(null, appointments.map(function(a){return a.id})) + 1 : 1;
-var nextActionId = (function(){ var mx=0; leads.forEach(function(l){ (l.actionItems||[]).forEach(function(ai){ if(ai.id>mx) mx=ai.id; }); }); return mx+1; })();
+var nextActionId = 1;
+try { leads.forEach(function(l){ (l.actionItems||[]).forEach(function(ai){ if(ai.id>=nextActionId) nextActionId=ai.id+1; }); }); } catch(e){}
 
 function saveAppts(){
  try { localStorage.setItem('salestracker_appts', JSON.stringify(appointments)); } catch(e){}
@@ -5878,33 +5879,31 @@ function startActionItemVoice(){
  voiceRecognition.maxAlternatives = 1;
  voiceRecognition.continuous = false;
 
- var gotResult = false;
+ var handled = false;
+
+ function resetMic(){
+  if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
+ }
 
  voiceRecognition.onresult = function(event){
-  gotResult = true;
+  handled = true;
+  resetMic();
   var transcript = event.results[0][0].transcript;
-  if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
   showVoiceActionModal(transcript);
  };
 
  voiceRecognition.onerror = function(event){
-  if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
-  // On aborted/not-allowed/no-speech — fall back to text input modal
-  if(event.error === 'aborted' || event.error === 'not-allowed' || event.error === 'service-not-allowed'){
-   showVoiceActionModal('');
-  } else if(event.error === 'no-speech'){
-   showToast('No speech detected — try again or type it',2000);
-   showVoiceActionModal('');
-  } else {
-   showToast('Speech error — opening text input',2000);
-   showVoiceActionModal('');
-  }
+  if(handled) return;
+  handled = true;
+  resetMic();
+  showVoiceActionModal('');
  };
 
  voiceRecognition.onend = function(){
-  if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
-  // If ended without result or error, open text modal
-  if(!gotResult) showVoiceActionModal('');
+  if(handled) return;
+  handled = true;
+  resetMic();
+  showVoiceActionModal('');
  };
 
  try {
