@@ -5861,10 +5861,13 @@ var voiceRecognition = null;
 
 function startActionItemVoice(){
  var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+ // If no speech support (iOS Safari, some browsers), go straight to text modal
  if(!SpeechRec){
-  showToast('Speech recognition not supported in this browser',3000);
+  showVoiceActionModal('');
   return;
  }
+
  // Visual feedback on mic button
  var micBtn = $1('#mic_btn');
  if(micBtn){ micBtn.style.background='#e74c3c'; micBtn.style.color='#fff'; micBtn.style.borderColor='#e74c3c'; }
@@ -5873,8 +5876,12 @@ function startActionItemVoice(){
  voiceRecognition.lang = 'en-US';
  voiceRecognition.interimResults = false;
  voiceRecognition.maxAlternatives = 1;
+ voiceRecognition.continuous = false;
+
+ var gotResult = false;
 
  voiceRecognition.onresult = function(event){
+  gotResult = true;
   var transcript = event.results[0][0].transcript;
   if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
   showVoiceActionModal(transcript);
@@ -5882,17 +5889,32 @@ function startActionItemVoice(){
 
  voiceRecognition.onerror = function(event){
   if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
-  if(event.error === 'no-speech') showToast('No speech detected — try again',2000);
-  else if(event.error === 'not-allowed') showToast('Microphone access denied',3000);
-  else showToast('Speech error: '+event.error,2000);
+  // On aborted/not-allowed/no-speech — fall back to text input modal
+  if(event.error === 'aborted' || event.error === 'not-allowed' || event.error === 'service-not-allowed'){
+   showVoiceActionModal('');
+  } else if(event.error === 'no-speech'){
+   showToast('No speech detected — try again or type it',2000);
+   showVoiceActionModal('');
+  } else {
+   showToast('Speech error — opening text input',2000);
+   showVoiceActionModal('');
+  }
  };
 
  voiceRecognition.onend = function(){
   if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
+  // If ended without result or error, open text modal
+  if(!gotResult) showVoiceActionModal('');
  };
 
- voiceRecognition.start();
- showToast('Listening...',2000);
+ try {
+  voiceRecognition.start();
+  showToast('🎤 Listening...',2000);
+ } catch(e){
+  // Some browsers throw on start() — fall back to text
+  if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
+  showVoiceActionModal('');
+ }
 }
 
 function showVoiceActionModal(transcript){
@@ -5931,13 +5953,15 @@ function showVoiceActionModal(transcript){
 
  var mh = '';
  mh += '<div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.2)">';
- mh += '<h3 style="margin:0 0 12px;color:var(--pri);font-size:16px">🎤 Voice Action Item</h3>';
+ mh += '<h3 style="margin:0 0 12px;color:var(--pri);font-size:16px">'+(transcript ? '🎤 Voice' : '📌 New')+' Action Item</h3>';
 
- // Transcript
- mh += '<div style="background:#f8f7ff;border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px;font-size:13px">';
- mh += '<div style="font-size:9px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Transcription</div>';
- mh += '<div id="vai_transcript" style="font-weight:600">'+transcript+'</div>';
- mh += '</div>';
+ // Transcript (only show if we got speech)
+ if(transcript){
+  mh += '<div style="background:#f8f7ff;border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px;font-size:13px">';
+  mh += '<div style="font-size:9px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Transcription</div>';
+  mh += '<div id="vai_transcript" style="font-weight:600">'+transcript+'</div>';
+  mh += '</div>';
+ }
 
  // Client match
  mh += '<div style="margin-bottom:10px">';
@@ -5982,6 +6006,8 @@ function showVoiceActionModal(transcript){
  overlay.innerHTML = mh;
  overlay.addEventListener('click', function(e){ if(e.target === overlay) closeVoiceActionModal(); });
  document.body.appendChild(overlay);
+ // Auto-focus task input (especially helpful when speech failed)
+ setTimeout(function(){ var ti = $1('#vai_text'); if(ti) ti.focus(); }, 100);
 }
 
 function saveVoiceActionItem(){
