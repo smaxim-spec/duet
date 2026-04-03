@@ -5964,20 +5964,23 @@ function showVoiceActionModal(transcript){
   mh += '</div>';
  }
 
- // Client match
+ // Client search
  mh += '<div style="margin-bottom:10px">';
  mh += '<label style="font-size:11px;font-weight:600;color:var(--pri);display:block;margin-bottom:4px">Client</label>';
+ mh += '<input type="hidden" id="vai_lead" value="'+(matchedLead ? matchedLead.id : '')+'">';
  if(matchedLead){
-  mh += '<div style="margin-bottom:4px;font-size:12px;color:var(--grn);font-weight:600">✓ Matched: '+matchedLead.name+'</div>';
+  mh += '<div id="vai_matched" style="background:var(--gtint);padding:8px 12px;border-radius:8px;font-size:14px;font-weight:600;color:var(--grn);display:flex;justify-content:space-between;align-items:center">';
+  mh += '<span>✓ '+matchedLead.name+'</span>';
+  mh += '<button onclick="vaiClearClient()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted)">&times;</button>';
+  mh += '</div>';
+  mh += '<div id="vai_search_wrap" style="display:none">';
+ } else {
+  mh += '<div id="vai_matched" style="display:none"></div>';
+  mh += '<div id="vai_search_wrap">';
  }
- mh += '<select id="vai_lead" style="width:100%;font-size:13px;padding:6px 8px">';
- mh += '<option value="">— No client (unattached) —</option>';
- var sortedLeads = leads.slice().sort(function(a,b){return a.name.localeCompare(b.name)});
- sortedLeads.forEach(function(l){
-  var sel = (matchedLead && l.id === matchedLead.id) ? ' selected' : '';
-  mh += '<option value="'+l.id+'"'+sel+'>'+l.name+' ('+CRM_STAGE_LABELS[l.stage]+')</option>';
- });
- mh += '</select>';
+ mh += '<input id="vai_client_search" placeholder="Type client name..." oninput="vaiSearchClient()" autocomplete="off" style="width:100%;font-size:16px;padding:10px 12px;box-sizing:border-box;border:2px solid var(--border);border-radius:8px">';
+ mh += '<div id="vai_client_results" style="max-height:180px;overflow-y:auto"></div>';
+ mh += '</div>';
  mh += '</div>';
 
  // Task text (editable, pre-filled with transcript)
@@ -6007,8 +6010,12 @@ function showVoiceActionModal(transcript){
  overlay.innerHTML = mh;
  overlay.addEventListener('click', function(e){ if(e.target === overlay) closeVoiceActionModal(); });
  document.body.appendChild(overlay);
- // Auto-focus task input (especially helpful when speech failed)
- setTimeout(function(){ var ti = $1('#vai_text'); if(ti) ti.focus(); }, 100);
+ // Auto-focus: client search if no match, otherwise task input
+ setTimeout(function(){
+  var hasMatch = $1('#vai_lead') && $1('#vai_lead').value;
+  if(!hasMatch){ var cs = $1('#vai_client_search'); if(cs) cs.focus(); }
+  else { var ti = $1('#vai_text'); if(ti) ti.focus(); }
+ }, 100);
 }
 
 function saveVoiceActionItem(){
@@ -6039,6 +6046,54 @@ function saveVoiceActionItem(){
 
  closeVoiceActionModal();
  renderCRM();
+}
+
+function vaiSearchClient(){
+ var q = ($1('#vai_client_search').value || '').trim().toLowerCase();
+ var container = $1('#vai_client_results');
+ if(!container) return;
+ if(q.length < 2){ container.innerHTML = ''; return; }
+ var matches = leads.filter(function(l){
+  if(!l.name) return false;
+  var nm = l.name.toLowerCase();
+  var ph = (l.phone||'').replace(/\D/g,'');
+  return nm.indexOf(q) !== -1 || ph.indexOf(q) !== -1;
+ }).slice(0,8);
+ if(matches.length === 0){
+  container.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--muted)">No matches</div>';
+  return;
+ }
+ var h = '';
+ matches.forEach(function(l){
+  var stgColor = CRM_STAGE_COLORS[l.stage] || '#999';
+  h += '<div onclick="vaiPickClient('+l.id+')" style="padding:10px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;align-items:center">';
+  h += '<div><b>'+l.name+'</b><span style="color:var(--muted);font-size:12px;margin-left:8px">'+(l.phone||'')+'</span></div>';
+  h += '<span style="background:'+stgColor+';color:#fff;font-size:10px;padding:2px 8px;border-radius:10px">'+CRM_STAGE_LABELS[l.stage]+'</span>';
+  h += '</div>';
+ });
+ container.innerHTML = h;
+}
+
+function vaiPickClient(leadId){
+ var lead = leads.find(function(l){return l.id===leadId});
+ if(!lead) return;
+ $1('#vai_lead').value = leadId;
+ var matched = $1('#vai_matched');
+ var searchWrap = $1('#vai_search_wrap');
+ matched.innerHTML = '<span style="font-size:14px;font-weight:600;color:var(--grn)">✓ '+lead.name+'</span><button onclick="vaiClearClient()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted)">&times;</button>';
+ matched.style.cssText = 'background:var(--gtint);padding:8px 12px;border-radius:8px;display:flex;justify-content:space-between;align-items:center';
+ searchWrap.style.display = 'none';
+}
+
+function vaiClearClient(){
+ $1('#vai_lead').value = '';
+ $1('#vai_matched').style.display = 'none';
+ var searchWrap = $1('#vai_search_wrap');
+ searchWrap.style.display = 'block';
+ var searchInput = $1('#vai_client_search');
+ searchInput.value = '';
+ $1('#vai_client_results').innerHTML = '';
+ setTimeout(function(){ searchInput.focus(); }, 50);
 }
 
 function closeVoiceActionModal(){
