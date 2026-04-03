@@ -904,6 +904,7 @@ try {
  appointments = savedAppt ? JSON.parse(savedAppt) : [];
 } catch(e) { appointments = []; }
 var nextApptId = appointments.length > 0 ? Math.max.apply(null, appointments.map(function(a){return a.id})) + 1 : 1;
+var nextActionId = (function(){ var mx=0; leads.forEach(function(l){ (l.actionItems||[]).forEach(function(ai){ if(ai.id>mx) mx=ai.id; }); }); return mx+1; })();
 
 function saveAppts(){
  try { localStorage.setItem('salestracker_appts', JSON.stringify(appointments)); } catch(e){}
@@ -4623,6 +4624,7 @@ function renderCallQueue(){
  h += '<div class="card" style="margin-bottom:12px;border:2px solid var(--pri);background:linear-gradient(135deg,#f8f7ff,#fff)">';
  h += '<div style="display:flex;gap:8px;align-items:end">';
  h += '<div class="form-group" style="flex:1;position:relative"><label style="font-weight:700;color:var(--pri)">🔍 Search or Add Client</label><input id="smart_search" placeholder="Start typing a name..." oninput="smartSearch()" autocomplete="off" style="font-size:14px;padding:8px 12px"></div>';
+ h += '<button id="mic_btn" onclick="startActionItemVoice()" title="Voice Action Item" style="width:52px;height:52px;border-radius:50%;border:2px solid var(--pri);background:var(--ptint);color:var(--pri);font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;box-shadow:0 2px 8px rgba(0,0,0,.1)">🎤</button>';
  h += '</div>';
  h += '<div id="smart_results" style="margin-top:4px"></div>';
  h += '</div>';
@@ -4713,8 +4715,12 @@ function renderCallQueue(){
  var bfMonthsLeft = Math.max(1, 12 - now.getMonth());
  var bfMonthlyTarget = Math.max(0, bfGoal - bfYtdNet) / bfMonthsLeft;
 
+ // Count action items due today or overdue
+ var bfActionItemCount = 0;
+ leads.forEach(function(l){ (l.actionItems||[]).forEach(function(ai){ if(!ai.done && ai.due && ai.due <= todayISO) bfActionItemCount++; }); });
+
  // Total action items today
- var bfTotalActions = bfCallsLeft + bfQuotedDue.length + bfMeetingDue.length + bfTodayMeetings.length + bfCallbacksDue.length;
+ var bfTotalActions = bfCallsLeft + bfQuotedDue.length + bfMeetingDue.length + bfTodayMeetings.length + bfCallbacksDue.length + bfActionItemCount;
 
  // Greeting based on time
  var bfHr = now.getHours();
@@ -4728,11 +4734,12 @@ function renderCallQueue(){
  h += '</div>';
 
  // Quick stats row
- h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">';
- h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfCallsLeft===0?'var(--grn)':'var(--pri)')+'">'+bfCallsLeft+'</div><div style="font-size:9px;color:var(--muted)">calls left today</div></div>';
- h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfQuotedDue.length>0?'var(--amb)':'var(--grn)')+'">'+bfQuotedDue.length+'</div><div style="font-size:9px;color:var(--muted)">quoted follow-ups</div></div>';
- h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:var(--pri)">'+bfTodayMeetings.length+'</div><div style="font-size:9px;color:var(--muted)">meetings today</div></div>';
- h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:var(--pri)">'+bfPct.toFixed(0)+'%</div><div style="font-size:9px;color:var(--muted)">to $100K goal</div></div>';
+ h += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px">';
+ h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfCallsLeft===0?'var(--grn)':'var(--pri)')+'">'+bfCallsLeft+'</div><div style="font-size:9px;color:var(--muted)">calls left</div></div>';
+ h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfQuotedDue.length>0?'var(--amb)':'var(--grn)')+'">'+bfQuotedDue.length+'</div><div style="font-size:9px;color:var(--muted)">quoted f/u</div></div>';
+ h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:var(--pri)">'+bfTodayMeetings.length+'</div><div style="font-size:9px;color:var(--muted)">meetings</div></div>';
+ h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfActionItemCount>0?'var(--amb)':'var(--grn)')+'">'+bfActionItemCount+'</div><div style="font-size:9px;color:var(--muted)">action items</div></div>';
+ h += '<div style="background:#fff;padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:var(--pri)">'+bfPct.toFixed(0)+'%</div><div style="font-size:9px;color:var(--muted)">to $100K</div></div>';
  h += '</div>';
 
  // Today's priority list
@@ -4776,6 +4783,37 @@ function renderCallQueue(){
   priorityItems.forEach(function(item){
    h += '<div style="padding:2px 0;border-bottom:1px solid #f0f0f0">'+item+'</div>';
   });
+ }
+
+ // ── ACTION ITEMS in briefing ──
+ var bfActionItems = [];
+ leads.forEach(function(l){ (l.actionItems||[]).forEach(function(ai){ if(!ai.done && ai.due && ai.due <= todayISO) bfActionItems.push({lead:l, item:ai}); }); });
+ var bfUpcomingActions = [];
+ var threeDays = new Date(now); threeDays.setDate(threeDays.getDate()+3); var threeDaysISO = toYMD(threeDays);
+ leads.forEach(function(l){ (l.actionItems||[]).forEach(function(ai){ if(!ai.done && ai.due && ai.due > todayISO && ai.due <= threeDaysISO) bfUpcomingActions.push({lead:l, item:ai}); }); });
+ if(bfActionItems.length > 0 || bfUpcomingActions.length > 0){
+  h += '<div style="margin-top:6px;margin-bottom:6px">';
+  h += '<b style="color:var(--pri)">📌 Action Items:</b>';
+  bfActionItems.forEach(function(a){
+   var overdue = a.item.due < todayISO;
+   var dueColor = overdue ? '#e74c3c' : 'var(--pri)';
+   var dueLabel = overdue ? '⚠ OVERDUE' : 'Due today';
+   h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #f0f0f0">';
+   h += '<input type="checkbox" onclick="toggleActionItem('+a.lead.id+','+a.item.id+');event.stopPropagation()" style="width:16px;height:16px;cursor:pointer">';
+   h += '<span onclick="crmEditId='+a.lead.id+';crmView=\'lead\';renderCRM()" style="cursor:pointer;color:var(--pri);font-weight:600;text-decoration:underline">'+a.lead.name+'</span>';
+   h += '<span style="flex:1">'+a.item.text+'</span>';
+   h += '<span style="font-size:9px;color:'+dueColor+';font-weight:600;white-space:nowrap">'+dueLabel+'</span>';
+   h += '</div>';
+  });
+  bfUpcomingActions.forEach(function(a){
+   h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #f0f0f0;opacity:0.7">';
+   h += '<input type="checkbox" onclick="toggleActionItem('+a.lead.id+','+a.item.id+');event.stopPropagation()" style="width:16px;height:16px;cursor:pointer">';
+   h += '<span onclick="crmEditId='+a.lead.id+';crmView=\'lead\';renderCRM()" style="cursor:pointer;color:var(--pri);font-weight:600;text-decoration:underline">'+a.lead.name+'</span>';
+   h += '<span style="flex:1">'+a.item.text+'</span>';
+   h += '<span style="font-size:9px;color:var(--muted);white-space:nowrap">Due '+a.item.due+'</span>';
+   h += '</div>';
+  });
+  h += '</div>';
  }
 
  // Progress bars — calls + appointments
@@ -5703,6 +5741,52 @@ function renderLeadDetail(){
   h += '</div>';
  }
 
+ // ── ACTION ITEMS card on lead detail ──
+ if(!lead.actionItems) lead.actionItems = [];
+ var openAI = lead.actionItems.filter(function(ai){return !ai.done});
+ var doneAI = lead.actionItems.filter(function(ai){return ai.done});
+ h += '<div class="card" style="margin-top:12px;border-left:4px solid var(--pri)">';
+ h += '<div onclick="toggleSection(\'ai_'+lead.id+'\')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">';
+ h += '<h3 style="margin:0;color:var(--pri)">📌 Action Items ('+openAI.length+')'+(openAI.length>0?' <span style="font-size:10px;background:var(--pri);color:#fff;padding:1px 6px;border-radius:8px">'+openAI.length+' open</span>':'')+'</h3>';
+ h += '<span id="ai_'+lead.id+'_arrow" style="font-size:14px;color:var(--muted);transition:transform .2s">▼</span>';
+ h += '</div>';
+ h += '<div id="ai_'+lead.id+'" style="margin-top:10px">';
+ // Add action item form
+ h += '<div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;align-items:end">';
+ h += '<input id="ai_text_'+lead.id+'" placeholder="New action item..." style="flex:1;min-width:150px;font-size:11px;padding:4px 6px">';
+ h += '<input type="date" id="ai_due_'+lead.id+'" value="'+toYMD(new Date())+'" style="font-size:11px;padding:4px 6px;width:auto">';
+ h += '<button class="btn btn-pri btn-sm" onclick="addActionItemToLead('+lead.id+')" style="font-size:10px;padding:2px 8px;white-space:nowrap">+ Add</button>';
+ h += '</div>';
+ // Open items
+ if(openAI.length === 0 && doneAI.length === 0){
+  h += '<p style="color:var(--muted);font-size:12px">No action items yet.</p>';
+ }
+ openAI.forEach(function(ai){
+  var overdue = ai.due && ai.due < toYMD(new Date());
+  var dueColor = overdue ? '#e74c3c' : 'var(--muted)';
+  h += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #f0f0f0">';
+  h += '<input type="checkbox" onclick="toggleActionItem('+lead.id+','+ai.id+')" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">';
+  h += '<span style="flex:1;font-size:12px">'+ai.text+'</span>';
+  if(ai.due) h += '<span style="font-size:10px;color:'+dueColor+';font-weight:'+(overdue?'700':'400')+';white-space:nowrap">'+(overdue?'⚠ ':'')+'Due '+ai.due+'</span>';
+  h += '<button onclick="deleteActionItem('+lead.id+','+ai.id+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:14px;padding:0 4px" title="Delete">×</button>';
+  h += '</div>';
+ });
+ // Completed items (collapsed)
+ if(doneAI.length > 0){
+  h += '<div style="margin-top:6px"><span onclick="toggleSection(\'ai_done_'+lead.id+'\')" style="font-size:10px;color:var(--muted);cursor:pointer;text-decoration:underline">'+doneAI.length+' completed item'+(doneAI.length>1?'s':'')+'</span>';
+  h += '<div id="ai_done_'+lead.id+'" style="display:none;margin-top:4px">';
+  doneAI.forEach(function(ai){
+   h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;opacity:0.5">';
+   h += '<input type="checkbox" checked onclick="toggleActionItem('+lead.id+','+ai.id+')" style="width:14px;height:14px;cursor:pointer;flex-shrink:0">';
+   h += '<span style="flex:1;font-size:11px;text-decoration:line-through">'+ai.text+'</span>';
+   h += '<button onclick="deleteActionItem('+lead.id+','+ai.id+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:14px;padding:0 4px" title="Delete">×</button>';
+   h += '</div>';
+  });
+  h += '</div></div>';
+ }
+ h += '</div>'; // end collapsible ai
+ h += '</div>';
+
  return h;
 }
 
@@ -5724,6 +5808,215 @@ function renderTimeSlots(leadId, dateStr){
  });
  h += '</div></div>';
  return h;
+}
+
+// ══════════════════════════════════════════════════
+// ── ACTION ITEMS SYSTEM ──
+// ══════════════════════════════════════════════════
+
+function addActionItemToLead(leadId){
+ var lead = leads.find(function(l){return l.id===leadId});
+ if(!lead) return;
+ var textEl = $1('#ai_text_'+leadId);
+ var dueEl = $1('#ai_due_'+leadId);
+ var text = textEl ? textEl.value.trim() : '';
+ if(!text){ showToast('Enter action item text',2000); return; }
+ if(!lead.actionItems) lead.actionItems = [];
+ lead.actionItems.push({
+  id: nextActionId++,
+  text: text,
+  due: dueEl ? dueEl.value : toYMD(new Date()),
+  done: false,
+  created: new Date().toISOString()
+ });
+ saveLeads();
+ showToast('Action item added',1500);
+ renderCRM();
+}
+
+function toggleActionItem(leadId, itemId){
+ var lead = leads.find(function(l){return l.id===leadId});
+ if(!lead || !lead.actionItems) return;
+ var item = lead.actionItems.find(function(ai){return ai.id===itemId});
+ if(!item) return;
+ item.done = !item.done;
+ if(item.done) item.completedDate = new Date().toISOString();
+ else delete item.completedDate;
+ saveLeads();
+ showToast(item.done ? 'Done!' : 'Reopened',1200);
+ renderCRM();
+}
+
+function deleteActionItem(leadId, itemId){
+ var lead = leads.find(function(l){return l.id===leadId});
+ if(!lead || !lead.actionItems) return;
+ lead.actionItems = lead.actionItems.filter(function(ai){return ai.id!==itemId});
+ saveLeads();
+ showToast('Action item deleted',1200);
+ renderCRM();
+}
+
+// ── VOICE ACTION ITEM (Speech-to-Text) ──
+var voiceRecognition = null;
+
+function startActionItemVoice(){
+ var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+ if(!SpeechRec){
+  showToast('Speech recognition not supported in this browser',3000);
+  return;
+ }
+ // Visual feedback on mic button
+ var micBtn = $1('#mic_btn');
+ if(micBtn){ micBtn.style.background='#e74c3c'; micBtn.style.color='#fff'; micBtn.style.borderColor='#e74c3c'; }
+
+ voiceRecognition = new SpeechRec();
+ voiceRecognition.lang = 'en-US';
+ voiceRecognition.interimResults = false;
+ voiceRecognition.maxAlternatives = 1;
+
+ voiceRecognition.onresult = function(event){
+  var transcript = event.results[0][0].transcript;
+  if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
+  showVoiceActionModal(transcript);
+ };
+
+ voiceRecognition.onerror = function(event){
+  if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
+  if(event.error === 'no-speech') showToast('No speech detected — try again',2000);
+  else if(event.error === 'not-allowed') showToast('Microphone access denied',3000);
+  else showToast('Speech error: '+event.error,2000);
+ };
+
+ voiceRecognition.onend = function(){
+  if(micBtn){ micBtn.style.background='var(--ptint)'; micBtn.style.color='var(--pri)'; micBtn.style.borderColor='var(--pri)'; }
+ };
+
+ voiceRecognition.start();
+ showToast('Listening...',2000);
+}
+
+function showVoiceActionModal(transcript){
+ // Try to auto-match a client name
+ var matchedLead = null;
+ var transcriptLower = transcript.toLowerCase();
+ leads.forEach(function(l){
+  if(l.name && transcriptLower.indexOf(l.name.toLowerCase()) !== -1){
+   if(!matchedLead || l.name.length > matchedLead.name.length) matchedLead = l;
+  }
+ });
+ // Also try first-name match as fallback
+ if(!matchedLead){
+  leads.forEach(function(l){
+   if(l.name){
+    var firstName = l.name.split(' ')[0].toLowerCase();
+    if(firstName.length > 2 && transcriptLower.indexOf(firstName) !== -1){
+     if(!matchedLead) matchedLead = l;
+    }
+   }
+  });
+ }
+
+ // Build modal overlay
+ var overlay = document.createElement('div');
+ overlay.id = 'voice_action_overlay';
+ overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+
+ var todayStr = toYMD(new Date());
+ var tomorrowD = new Date(); tomorrowD.setDate(tomorrowD.getDate()+1);
+ var tomorrowStr = toYMD(tomorrowD);
+ var fridayD = new Date();
+ var daysToFri = (5 - fridayD.getDay() + 7) % 7; if(daysToFri === 0) daysToFri = 7;
+ fridayD.setDate(fridayD.getDate() + daysToFri);
+ var fridayStr = toYMD(fridayD);
+
+ var mh = '';
+ mh += '<div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.2)">';
+ mh += '<h3 style="margin:0 0 12px;color:var(--pri);font-size:16px">🎤 Voice Action Item</h3>';
+
+ // Transcript
+ mh += '<div style="background:#f8f7ff;border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px;font-size:13px">';
+ mh += '<div style="font-size:9px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Transcription</div>';
+ mh += '<div id="vai_transcript" style="font-weight:600">'+transcript+'</div>';
+ mh += '</div>';
+
+ // Client match
+ mh += '<div style="margin-bottom:10px">';
+ mh += '<label style="font-size:11px;font-weight:600;color:var(--pri);display:block;margin-bottom:4px">Client</label>';
+ if(matchedLead){
+  mh += '<div style="margin-bottom:4px;font-size:12px;color:var(--grn);font-weight:600">✓ Matched: '+matchedLead.name+'</div>';
+ }
+ mh += '<select id="vai_lead" style="width:100%;font-size:13px;padding:6px 8px">';
+ mh += '<option value="">— No client (unattached) —</option>';
+ var sortedLeads = leads.slice().sort(function(a,b){return a.name.localeCompare(b.name)});
+ sortedLeads.forEach(function(l){
+  var sel = (matchedLead && l.id === matchedLead.id) ? ' selected' : '';
+  mh += '<option value="'+l.id+'"'+sel+'>'+l.name+' ('+CRM_STAGE_LABELS[l.stage]+')</option>';
+ });
+ mh += '</select>';
+ mh += '</div>';
+
+ // Task text (editable, pre-filled with transcript)
+ mh += '<div style="margin-bottom:10px">';
+ mh += '<label style="font-size:11px;font-weight:600;color:var(--pri);display:block;margin-bottom:4px">Task</label>';
+ mh += '<input id="vai_text" value="'+transcript.replace(/"/g,'&quot;')+'" style="width:100%;font-size:13px;padding:6px 8px;box-sizing:border-box">';
+ mh += '</div>';
+
+ // Due date with quick buttons
+ mh += '<div style="margin-bottom:14px">';
+ mh += '<label style="font-size:11px;font-weight:600;color:var(--pri);display:block;margin-bottom:4px">Due Date</label>';
+ mh += '<div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">';
+ mh += '<button onclick="$1(\'#vai_due\').value=\''+todayStr+'\'" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px">Today</button>';
+ mh += '<button onclick="$1(\'#vai_due\').value=\''+tomorrowStr+'\'" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px">Tomorrow</button>';
+ mh += '<button onclick="$1(\'#vai_due\').value=\''+fridayStr+'\'" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px">This Week (Fri)</button>';
+ mh += '</div>';
+ mh += '<input type="date" id="vai_due" value="'+todayStr+'" style="width:100%;font-size:13px;padding:6px 8px;box-sizing:border-box">';
+ mh += '</div>';
+
+ // Buttons
+ mh += '<div style="display:flex;gap:8px">';
+ mh += '<button onclick="saveVoiceActionItem()" class="btn btn-pri" style="flex:1;padding:10px;font-size:14px;font-weight:700">Save Action Item</button>';
+ mh += '<button onclick="closeVoiceActionModal()" class="btn btn-outline" style="padding:10px 16px;font-size:14px">Cancel</button>';
+ mh += '</div>';
+ mh += '</div>';
+
+ overlay.innerHTML = mh;
+ overlay.addEventListener('click', function(e){ if(e.target === overlay) closeVoiceActionModal(); });
+ document.body.appendChild(overlay);
+}
+
+function saveVoiceActionItem(){
+ var leadSelect = $1('#vai_lead');
+ var textEl = $1('#vai_text');
+ var dueEl = $1('#vai_due');
+ var text = textEl ? textEl.value.trim() : '';
+ if(!text){ showToast('Enter action item text',2000); return; }
+ var leadId = leadSelect ? parseInt(leadSelect.value) : 0;
+ var lead = leadId ? leads.find(function(l){return l.id===leadId}) : null;
+
+ if(lead){
+  if(!lead.actionItems) lead.actionItems = [];
+  lead.actionItems.push({
+   id: nextActionId++,
+   text: text,
+   due: dueEl ? dueEl.value : toYMD(new Date()),
+   done: false,
+   created: new Date().toISOString()
+  });
+  saveLeads();
+  showToast('Action item added for '+lead.name,2000);
+ } else {
+  // No client selected — attach to a special unattached holder or show warning
+  showToast('Please select a client to attach this action item',2500);
+  return;
+ }
+
+ closeVoiceActionModal();
+ renderCRM();
+}
+
+function closeVoiceActionModal(){
+ var overlay = $1('#voice_action_overlay');
+ if(overlay) overlay.remove();
 }
 
 function selectSlot(el){
