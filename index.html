@@ -219,7 +219,7 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.10.0';
+var APP_VERSION = 'v1.10.1';
 var APP_BUILD_DATE = '2026-04-02';
 var CHANGELOG = [
  {ver:'v1.1.0', date:'2026-03-29', notes:[
@@ -5979,6 +5979,7 @@ function showVoiceActionModal(transcript){
  mh += '<div style="margin-bottom:10px">';
  mh += '<label style="font-size:11px;font-weight:600;color:var(--pri);display:block;margin-bottom:4px">Client</label>';
  mh += '<input type="hidden" id="vai_lead" value="'+(matchedLead ? matchedLead.id : '')+'">';
+ mh += '<input type="hidden" id="vai_pipe_id" value="">';
  if(matchedLead){
   mh += '<div id="vai_matched" style="background:var(--gtint);padding:8px 12px;border-radius:8px;font-size:14px;font-weight:600;color:var(--grn);display:flex;justify-content:space-between;align-items:center">';
   mh += '<span>✓ '+matchedLead.name+'</span>';
@@ -6031,12 +6032,31 @@ function showVoiceActionModal(transcript){
 
 function saveVoiceActionItem(){
  var leadSelect = $1('#vai_lead');
+ var pipeSelect = $1('#vai_pipe_id');
  var textEl = $1('#vai_text');
  var dueEl = $1('#vai_due');
  var text = textEl ? textEl.value.trim() : '';
  if(!text){ showToast('Enter action item text',2000); return; }
  var leadId = leadSelect ? parseInt(leadSelect.value) : 0;
+ var pipeId = pipeSelect ? parseInt(pipeSelect.value) : 0;
  var lead = leadId ? leads.find(function(l){return l.id===leadId}) : null;
+
+ // If pipeline client selected but no CRM lead, create a lead from the pipeline case
+ if(!lead && pipeId){
+  var pCase = pl.find(function(c){return c.id===pipeId});
+  if(pCase){
+   var newId = 1;
+   leads.forEach(function(l){ if(l.id >= newId) newId = l.id + 1; });
+   lead = {
+    id: newId, name: pCase.client, phone: pCase.phone||'', email: '',
+    source: 'Pipeline', stage: 'won', callAttempts: 0, callLog: [],
+    actionItems: [], notes: 'Auto-created from Book of Business action item',
+    created: new Date().toISOString()
+   };
+   leads.push(lead);
+   showToast('Created CRM lead for '+pCase.client,1500);
+  }
+ }
 
  if(lead){
   if(!lead.actionItems) lead.actionItems = [];
@@ -6050,7 +6070,6 @@ function saveVoiceActionItem(){
   saveLeads();
   showToast('Action item added for '+lead.name,2000);
  } else {
-  // No client selected — attach to a special unattached holder or show warning
   showToast('Please select a client to attach this action item',2500);
   return;
  }
@@ -6064,22 +6083,47 @@ function vaiSearchClient(){
  var container = $1('#vai_client_results');
  if(!container) return;
  if(q.length < 2){ container.innerHTML = ''; return; }
- var matches = leads.filter(function(l){
+ // Search CRM leads
+ var leadMatches = leads.filter(function(l){
   if(!l.name) return false;
   var nm = l.name.toLowerCase();
   var ph = (l.phone||'').replace(/\D/g,'');
   return nm.indexOf(q) !== -1 || ph.indexOf(q) !== -1;
- }).slice(0,8);
- if(matches.length === 0){
+ });
+ // Search pipeline cases (Book of Business) — may not be in CRM leads
+ var leadNames = {};
+ leadMatches.forEach(function(l){ leadNames[l.name.toLowerCase()] = true; });
+ var pipeMatches = [];
+ if(pl && pl.length){
+  pl.forEach(function(c){
+   if(!c.client) return;
+   var cn = c.client.toLowerCase();
+   var ph = (c.phone||'').replace(/\D/g,'');
+   if((cn.indexOf(q) !== -1 || ph.indexOf(q) !== -1) && !leadNames[cn]){
+    leadNames[cn] = true;
+    pipeMatches.push(c);
+   }
+  });
+ }
+ var combined = leadMatches.slice(0,8);
+ var slotsLeft = 8 - combined.length;
+ if(slotsLeft > 0) pipeMatches = pipeMatches.slice(0, slotsLeft);
+ if(combined.length === 0 && pipeMatches.length === 0){
   container.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--muted)">No matches</div>';
   return;
  }
  var h = '';
- matches.forEach(function(l){
+ combined.forEach(function(l){
   var stgColor = CRM_STAGE_COLORS[l.stage] || '#999';
   h += '<div onclick="vaiPickClient('+l.id+')" style="padding:10px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;align-items:center">';
   h += '<div><b>'+l.name+'</b><span style="color:var(--muted);font-size:12px;margin-left:8px">'+(l.phone||'')+'</span></div>';
   h += '<span style="background:'+stgColor+';color:#fff;font-size:10px;padding:2px 8px;border-radius:10px">'+CRM_STAGE_LABELS[l.stage]+'</span>';
+  h += '</div>';
+ });
+ pipeMatches.forEach(function(c){
+  h += '<div onclick="vaiPickPipelineClient('+c.id+',\''+c.client.replace(/'/g,"\\'")+'\')" style="padding:10px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;align-items:center">';
+  h += '<div><b>'+c.client+'</b><span style="color:var(--muted);font-size:12px;margin-left:8px">'+(c.phone||'')+'</span></div>';
+  h += '<span style="background:var(--amb);color:#fff;font-size:10px;padding:2px 8px;border-radius:10px">Pipeline</span>';
   h += '</div>';
  });
  container.innerHTML = h;
@@ -6089,6 +6133,7 @@ function vaiPickClient(leadId){
  var lead = leads.find(function(l){return l.id===leadId});
  if(!lead) return;
  $1('#vai_lead').value = leadId;
+ $1('#vai_pipe_id').value = '';
  var matched = $1('#vai_matched');
  var searchWrap = $1('#vai_search_wrap');
  matched.innerHTML = '<span style="font-size:14px;font-weight:600;color:var(--grn)">✓ '+lead.name+'</span><button onclick="vaiClearClient()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted)">&times;</button>';
@@ -6096,8 +6141,19 @@ function vaiPickClient(leadId){
  searchWrap.style.display = 'none';
 }
 
+function vaiPickPipelineClient(caseId, clientName){
+ $1('#vai_lead').value = '';
+ $1('#vai_pipe_id').value = caseId;
+ var matched = $1('#vai_matched');
+ var searchWrap = $1('#vai_search_wrap');
+ matched.innerHTML = '<span style="font-size:14px;font-weight:600;color:var(--grn)">✓ '+clientName+' <span style="font-size:11px;color:var(--amb)">(Pipeline)</span></span><button onclick="vaiClearClient()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted)">&times;</button>';
+ matched.style.cssText = 'background:var(--gtint);padding:8px 12px;border-radius:8px;display:flex;justify-content:space-between;align-items:center';
+ searchWrap.style.display = 'none';
+}
+
 function vaiClearClient(){
  $1('#vai_lead').value = '';
+ $1('#vai_pipe_id').value = '';
  $1('#vai_matched').style.display = 'none';
  var searchWrap = $1('#vai_search_wrap');
  searchWrap.style.display = 'block';
