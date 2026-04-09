@@ -7374,13 +7374,13 @@ function renderLeadDetail(){
  h += '<span id="imgs_'+lead.id+'_arrow" style="font-size:14px;color:var(--muted);transition:transform .2s">▶</span>';
  h += '</div>';
  h += '<div id="imgs_'+lead.id+'" style="display:none;margin-top:10px">';
- // Drop zone
- h += '<div id="img_dropzone_'+lead.id+'" ondragover="event.preventDefault();this.style.borderColor=\'var(--pri)\';this.style.background=\'var(--ptint)\'" ondragleave="this.style.borderColor=\'var(--border)\';this.style.background=\'\'" ondrop="handleImageDrop(event,'+lead.id+')" onclick="document.getElementById(\'img_file_'+lead.id+'\').click()" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer;margin-bottom:12px;transition:all .2s">';
+ // Upload button (works reliably on mobile) + drop zone for desktop
+ h += '<label for="img_file_'+lead.id+'" style="display:block;border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer;margin-bottom:12px;transition:all .2s" ondragover="event.preventDefault();this.style.borderColor=\'var(--pri)\';this.style.background=\'var(--ptint)\'" ondragleave="this.style.borderColor=\'var(--border)\';this.style.background=\'\'" ondrop="handleImageDrop(event,'+lead.id+')">';
  h += '<div style="font-size:24px;margin-bottom:4px">📁</div>';
- h += '<div style="font-size:12px;color:var(--muted)">Drag &amp; drop images here or <b style="color:var(--pri)">click to browse</b></div>';
+ h += '<div style="font-size:12px;color:var(--muted)">Tap here to add photos or files</div>';
  h += '<div style="font-size:10px;color:var(--muted);margin-top:2px">Business cards, quotes, policy docs, screenshots</div>';
- h += '<input type="file" id="img_file_'+lead.id+'" multiple accept="image/*,.pdf,.doc,.docx" style="display:none" onchange="for(var i=0;i<this.files.length;i++){uploadLeadImage('+lead.id+',this.files[i])};this.value=\'\'">';
- h += '</div>';
+ h += '</label>';
+ h += '<input type="file" id="img_file_'+lead.id+'" multiple accept="image/*,application/pdf" capture="environment" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden" onchange="for(var i=0;i<this.files.length;i++){uploadLeadImage('+lead.id+',this.files[i])};this.value=\'\'">';
  // Gallery area (loaded via JS)
  h += '<div id="img_gallery_'+lead.id+'"></div>';
  h += '</div></div>';
