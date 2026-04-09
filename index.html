@@ -500,6 +500,17 @@ function firebaseLoadAll(callback){
       if(entry.device) lastSyncDevice = entry.device;
       pulled = true;
       console.log('[Firebase] Merged '+mergeCount+' lead changes from '+entry.device);
+      // Auto-create appointments for merged leads with meeting data
+      mergedLeads.forEach(function(ml){
+       if(ml.meetingDate && ml.meetingTime && ml.stage === 'meeting_set'){
+        var hasAppt = appointments.some(function(a){ return a.leadId == ml.id || (a.clientName === ml.name && a.date === ml.meetingDate && a.time === ml.meetingTime); });
+        if(!hasAppt){
+         appointments.push({id: nextApptId++, leadId: ml.id, clientName: ml.name, date: ml.meetingDate, time: ml.meetingTime, type: ml.meetingType||'Zoom', location: MEETING_LOCATIONS[ml.meetingType]||'', interest: ml.interest||'', notes: ''});
+         try{ localStorage.setItem('salestracker_appts', JSON.stringify(appointments)); }catch(e){}
+         console.log('[Firebase] Auto-created appointment for '+ml.name+' on '+ml.meetingDate);
+        }
+       }
+      });
      }
      return; // done with leads, don't use default set
     }
@@ -6481,7 +6492,7 @@ function renderCallQueue(){
  var bfNurturingDue = queueLeads.filter(function(l){ return l.stage==='incubator'; });
  var bfCallbacksDue = leads.filter(function(l){ return l.callbackDate && l.callbackDate <= todayISO; });
 
- // Today's meetings
+ // Today's meetings — merge appointments array + leads with meetingDate
  var nowTime = now.getHours()*60 + now.getMinutes();
  var bfTodayMeetings = appointments.filter(function(a){
   if(a.date !== todayISO) return false;
@@ -6489,17 +6500,42 @@ function renderCallQueue(){
    var tp = a.time.match(/(\d+):(\d+)/);
    if(tp){
     var hr = parseInt(tp[1]); var mn = parseInt(tp[2]);
-    // APPT_SLOTS use 1:00-3:30 for PM (no AM/PM label) — hours < 9 are afternoon
     if(hr < 9) hr += 12;
     if((hr*60+mn) < nowTime) return false;
    }
   }
   return true;
- }).sort(function(a,b){ return a.time < b.time ? -1 : 1; });
- var bfTomorrowMeetings = [];
+ });
+ // Also check leads with meetingDate that aren't in appointments
+ leads.forEach(function(l){
+  if(l.meetingDate === todayISO && l.meetingTime){
+   var alreadyInAppts = bfTodayMeetings.some(function(a){ return a.leadId == l.id || (a.clientName === l.name && a.time === l.meetingTime); });
+   if(!alreadyInAppts){
+    var tp = l.meetingTime.match(/(\d+):(\d+)/);
+    if(tp){
+     var hr = parseInt(tp[1]); var mn = parseInt(tp[2]);
+     if(hr < 9) hr += 12;
+     if((hr*60+mn) >= nowTime){
+      bfTodayMeetings.push({leadId:l.id, clientName:l.name, date:l.meetingDate, time:l.meetingTime, type:l.meetingType, location:MEETING_LOCATIONS[l.meetingType]||'', interest:l.interest||''});
+     }
+    }
+   }
+  }
+ });
+ bfTodayMeetings.sort(function(a,b){ return a.time < b.time ? -1 : 1; });
  var tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate()+1);
  var tomorrowISO = toYMD(tomorrow);
- bfTomorrowMeetings = appointments.filter(function(a){ return a.date === tomorrowISO; });
+ var bfTomorrowMeetings = appointments.filter(function(a){ return a.date === tomorrowISO; });
+ // Also check leads with meetingDate tomorrow not in appointments
+ leads.forEach(function(l){
+  if(l.meetingDate === tomorrowISO && l.meetingTime){
+   var alreadyIn = bfTomorrowMeetings.some(function(a){ return a.leadId == l.id || (a.clientName === l.name && a.time === l.meetingTime); });
+   if(!alreadyIn){
+    bfTomorrowMeetings.push({leadId:l.id, clientName:l.name, date:l.meetingDate, time:l.meetingTime, type:l.meetingType, location:MEETING_LOCATIONS[l.meetingType]||'', interest:l.interest||''});
+   }
+  }
+ });
+ bfTomorrowMeetings.sort(function(a,b){ return a.time < b.time ? -1 : 1; });
 
  // Pace
  var bfYtdNet = pe.reduce(function(s,p){return s+p.net},0);
