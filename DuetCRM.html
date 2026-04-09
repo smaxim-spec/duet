@@ -8189,67 +8189,120 @@ function addHistoryNote(leadId){
  showToast('Note added!', 2000);
 }
 
-// ═══ CLIENT IMAGES ═══
+// ═══ CLIENT IMAGES (base64 stored in lead data, syncs via Firebase) ═══
 function loadLeadImages(leadId){
- fetch('/images/list/'+leadId).then(function(r){return r.json()}).then(function(data){
-  var area = document.getElementById('img_gallery_'+leadId);
-  if(!area) return;
-  var imgs = data.images || [];
-  if(imgs.length === 0){
-   area.innerHTML = '<p style="color:var(--muted);font-size:12px;margin:0">No images yet. Drag &amp; drop or click to upload.</p>';
+ var area = document.getElementById('img_gallery_'+leadId);
+ if(!area) return;
+ var lead = leads.find(function(l){return l.id == leadId});
+ if(!lead) return;
+ var imgs = lead.images || [];
+ if(imgs.length === 0){
+  area.innerHTML = '<p style="color:var(--muted);font-size:12px;margin:0">No images yet. Drag &amp; drop or click to upload.</p>';
+  return;
+ }
+ var h = '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+ imgs.forEach(function(img, idx){
+  var isImage = img.type && img.type.startsWith('image/');
+  var sizeKB = img.data ? Math.round(img.data.length * 3 / 4 / 1024) : 0;
+  var displayName = img.name || 'file';
+  if(displayName.length > 20) displayName = displayName.substring(0,17)+'...';
+  h += '<div style="position:relative;width:120px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--card)">';
+  if(isImage){
+   h += '<div onclick="viewLeadImage('+leadId+','+idx+')" style="cursor:pointer;height:90px;background:url('+img.data+') center/cover no-repeat;border-bottom:1px solid var(--border)"></div>';
+  } else {
+   h += '<div onclick="viewLeadImage('+leadId+','+idx+')" style="cursor:pointer;height:90px;display:flex;align-items:center;justify-content:center;background:var(--ptint);border-bottom:1px solid var(--border);font-size:28px">📄</div>';
+  }
+  h += '<div style="padding:4px 6px">';
+  h += '<div style="font-size:9px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+(img.name||'')+'">'+displayName+'</div>';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center">';
+  h += '<span style="font-size:9px;color:var(--muted)">'+sizeKB+'KB</span>';
+  h += '<button onclick="deleteLeadImage('+leadId+','+idx+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:11px;padding:0" title="Delete">✕</button>';
+  h += '</div></div></div>';
+ });
+ h += '</div>';
+ area.innerHTML = h;
+}
+
+function viewLeadImage(leadId, idx){
+ var lead = leads.find(function(l){return l.id == leadId});
+ if(!lead || !lead.images || !lead.images[idx]) return;
+ var img = lead.images[idx];
+ var overlay = document.createElement('div');
+ overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
+ overlay.onclick = function(){ overlay.remove(); };
+ if(img.type && img.type.startsWith('image/')){
+  var el = document.createElement('img');
+  el.src = img.data;
+  el.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,0.5)';
+  overlay.appendChild(el);
+ } else {
+  var link = document.createElement('a');
+  link.href = img.data;
+  link.download = img.name || 'file';
+  link.click();
+  return;
+ }
+ document.body.appendChild(overlay);
+}
+
+function resizeAndStore(file, leadId, maxDim, quality){
+ maxDim = maxDim || 1200;
+ quality = quality || 0.75;
+ var reader = new FileReader();
+ reader.onload = function(e){
+  var isImage = file.type && file.type.startsWith('image/');
+  if(!isImage){
+   // Non-image file — store as-is if under 500KB
+   if(file.size > 512000){ showToast('File too large (max 500KB for non-images)', 3000); return; }
+   var lead = leads.find(function(l){return l.id == leadId});
+   if(!lead) return;
+   if(!lead.images) lead.images = [];
+   lead.images.push({name: file.name, type: file.type, data: e.target.result, date: new Date().toISOString()});
+   saveLeads();
+   loadLeadImages(leadId);
+   showToast('✅ File saved!', 2000);
    return;
   }
-  var h = '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-  imgs.forEach(function(img){
-   var isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(img.filename);
-   var sizeKB = Math.round(img.size/1024);
-   var displayName = img.filename.replace(/^\d+_/,'');
-   if(displayName.length > 20) displayName = displayName.substring(0,17)+'...';
-   h += '<div style="position:relative;width:120px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--card)">';
-   if(isImage){
-    h += '<div onclick="window.open(\''+img.path+'\',\'_blank\')" style="cursor:pointer;height:90px;background:url('+img.path+') center/cover no-repeat;border-bottom:1px solid var(--border)"></div>';
-   } else {
-    h += '<div onclick="window.open(\''+img.path+'\',\'_blank\')" style="cursor:pointer;height:90px;display:flex;align-items:center;justify-content:center;background:var(--ptint);border-bottom:1px solid var(--border);font-size:28px">📄</div>';
+  // Resize image
+  var img = new Image();
+  img.onload = function(){
+   var w = img.width, h = img.height;
+   if(w > maxDim || h > maxDim){
+    if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
+    else { w = Math.round(w * maxDim / h); h = maxDim; }
    }
-   h += '<div style="padding:4px 6px">';
-   h += '<div style="font-size:9px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+img.filename.replace(/^\d+_/,'')+'">'+displayName+'</div>';
-   h += '<div style="display:flex;justify-content:space-between;align-items:center">';
-   h += '<span style="font-size:9px;color:var(--muted)">'+sizeKB+'KB</span>';
-   h += '<button onclick="deleteLeadImage('+leadId+',\''+img.filename+'\')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:11px;padding:0" title="Delete">✕</button>';
-   h += '</div></div></div>';
-  });
-  h += '</div>';
-  area.innerHTML = h;
- }).catch(function(e){
-  console.log('Error loading images:', e);
- });
+   var canvas = document.createElement('canvas');
+   canvas.width = w; canvas.height = h;
+   var ctx = canvas.getContext('2d');
+   ctx.drawImage(img, 0, 0, w, h);
+   var dataUrl = canvas.toDataURL('image/jpeg', quality);
+   var lead = leads.find(function(l){return l.id == leadId});
+   if(!lead) return;
+   if(!lead.images) lead.images = [];
+   lead.images.push({name: file.name, type: 'image/jpeg', data: dataUrl, date: new Date().toISOString()});
+   saveLeads();
+   loadLeadImages(leadId);
+   showToast('✅ Image saved!', 2000);
+  };
+  img.src = e.target.result;
+ };
+ reader.readAsDataURL(file);
 }
 
 function uploadLeadImage(leadId, file){
- var fd = new FormData();
- fd.append('leadId', leadId);
- fd.append('file', file);
- showToast('Uploading '+file.name+'...', 2000);
- fetch('/images/upload', {method:'POST', body:fd}).then(function(r){return r.json()}).then(function(data){
-  if(data.ok){
-   showToast('✅ Image saved!', 2000);
-   loadLeadImages(leadId);
-  } else {
-   showToast('Upload failed: '+(data.error||'unknown'), 3000);
-  }
- }).catch(function(e){
-  showToast('Upload error: '+e, 3000);
- });
+ if(file.size > 5242880){ showToast('File too large (max 5MB)', 3000); return; }
+ showToast('Processing '+file.name+'...', 2000);
+ resizeAndStore(file, leadId);
 }
 
-function deleteLeadImage(leadId, filename){
+function deleteLeadImage(leadId, idx){
  if(!confirm('Delete this image?')) return;
- fetch('/images/'+leadId+'/'+filename, {method:'DELETE'}).then(function(r){return r.json()}).then(function(data){
-  if(data.ok){
-   showToast('Image deleted', 2000);
-   loadLeadImages(leadId);
-  }
- });
+ var lead = leads.find(function(l){return l.id == leadId});
+ if(!lead || !lead.images) return;
+ lead.images.splice(idx, 1);
+ saveLeads();
+ loadLeadImages(leadId);
+ showToast('Image deleted', 2000);
 }
 
 function handleImageDrop(e, leadId){
