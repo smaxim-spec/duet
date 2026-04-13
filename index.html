@@ -371,11 +371,23 @@ var _fbSyncing = false;
 var _fbSuppressSync = false;
 var lastSyncDevice = '';
 
+function fbCleanKeys(obj){
+ if(!obj || typeof obj !== 'object') return obj;
+ if(Array.isArray(obj)) return obj.map(function(item){ return fbCleanKeys(item); });
+ var clean = {};
+ Object.keys(obj).forEach(function(k){
+  if(k === '' || k === null || k === undefined) return;
+  var safe = String(k).replace(/[.#$/\[\]?]/g, '_');
+  clean[safe] = fbCleanKeys(obj[k]);
+ });
+ return clean;
+}
+
 function fbSave(key, data){
  return fetch(FIREBASE_URL+'/'+key+'.json', {
   method:'PUT',
   headers:{'Content-Type':'application/json'},
-  body: JSON.stringify({data:data, updated:new Date().toISOString(), device:DEVICE_NAME})
+  body: JSON.stringify({data:fbCleanKeys(data), updated:new Date().toISOString(), device:DEVICE_NAME})
  });
 }
 
