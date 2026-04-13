@@ -8542,15 +8542,138 @@ function removeAgent(id){
  renderCRM();
 }
 
+// ── GOOGLE CALENDAR → CRM RESYNC ──
+function syncFromCalendar(silent){
+ var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+ if(!isLocal) return;
+
+ var today = new Date();
+ var start = toYMD(today);
+ var end30 = new Date(today);
+ end30.setDate(end30.getDate() + 30);
+ var end = toYMD(end30);
+
+ // Build reverse prefix map: 'Venice' → 'In-Person: Venice Office', etc.
+ var prefixToType = {};
+ Object.keys(MEETING_CAL_PREFIX).forEach(function(k){ prefixToType[MEETING_CAL_PREFIX[k].toLowerCase()] = k; });
+
+ fetch('/calendar/events?start=' + start + '&end=' + end)
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+   var events = data.events || [];
+   var updated = 0;
+   var cancelled = 0;
+   var warnings = [];
+
+   // Build a map of calendar events by client name (lowercase)
+   var calMap = {};
+   events.forEach(function(ev){
+    if(ev.status === 'cancelled') return;
+    var parts = (ev.summary || '').split(' - ');
+    if(parts.length < 2) return;
+    var clientName = parts.slice(1).join(' - ').trim();
+    if(!clientName) return;
+    // Parse date and time from event start
+    var evStart = ev.start || '';
+    var evDate = '', evTime = '';
+    if(evStart.length >= 10){
+     // ISO datetime like 2026-04-13T14:30:00-04:00
+     evDate = evStart.substring(0, 10);
+     if(evStart.length > 10){
+      var timePart = evStart.substring(11, 16); // HH:MM in 24h
+      var hh = parseInt(timePart.substring(0, 2), 10);
+      var mm = timePart.substring(3, 5);
+      // Convert to 12h format without AM/PM (matches CRM slot format like "2:30")
+      var h12 = hh > 12 ? hh - 12 : (hh === 0 ? 12 : hh);
+      evTime = h12 + ':' + mm;
+     }
+    }
+    calMap[clientName.toLowerCase()] = {date: evDate, time: evTime, summary: ev.summary, prefix: parts[0].trim()};
+   });
+
+   // Check each CRM appointment in the next 30 days
+   var upcomingAppts = appointments.filter(function(a){ return a.date >= start && a.date <= end; });
+
+   upcomingAppts.forEach(function(appt){
+    var key = (appt.clientName || '').toLowerCase().trim();
+    if(!key) return;
+
+    var calEvent = calMap[key];
+    if(!calEvent){
+     // Calendar event is missing — flag warning
+     cancelled++;
+     warnings.push(appt.clientName + ' (' + appt.date + ') — not found on calendar');
+     return;
+    }
+
+    // Check if date or time changed
+    if(calEvent.date !== appt.date || calEvent.time !== appt.time){
+     var oldDate = appt.date;
+     var oldTime = appt.time;
+     // Update appointment
+     appt.date = calEvent.date;
+     appt.time = calEvent.time;
+     // Update meeting type if prefix changed
+     var newType = prefixToType[calEvent.prefix.toLowerCase()];
+     if(newType) appt.type = newType;
+
+     // Update the matching lead
+     var lead = leads.find(function(l){ return l.id === appt.leadId; });
+     if(lead){
+      lead.meetingDate = calEvent.date;
+      lead.meetingTime = calEvent.time;
+      if(newType) lead.meetingType = newType;
+      // Add log entry
+      if(!lead.callLog) lead.callLog = [];
+      lead.callLog.push({
+       date: new Date().toISOString(),
+       outcome: 'Rescheduled',
+       block: 'calendar-sync',
+       notes: '🔄 Calendar sync: moved from ' + oldDate + ' ' + oldTime + ' → ' + calEvent.date + ' ' + calEvent.time
+      });
+     }
+     updated++;
+    }
+    // Remove from calMap so we don't double-count
+    delete calMap[key];
+   });
+
+   if(updated > 0){
+    saveLeads();
+    saveAppts();
+    renderCRM();
+   }
+
+   // Show toast
+   var msg = 'Calendar sync: ';
+   var parts = [];
+   if(updated > 0) parts.push(updated + ' appointment' + (updated > 1 ? 's' : '') + ' updated');
+   if(cancelled > 0) parts.push(cancelled + ' not found on calendar');
+   if(parts.length === 0) parts.push('all appointments in sync');
+   msg += parts.join(', ');
+   if(!silent || updated > 0 || cancelled > 0) showToast(msg, 5000);
+
+   // Log warnings to console
+   if(warnings.length > 0) console.log('Calendar sync warnings:', warnings);
+  })
+  .catch(function(err){
+   console.error('Calendar sync error:', err);
+   if(!silent) showToast('Calendar sync failed: ' + err, 5000);
+  });
+}
+
 function renderScheduleView(){
  var h = '';
  var today = toYMD(new Date());
+ var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
  // Upcoming appointments
  var upcoming = appointments.filter(function(a){return a.date >= today}).sort(function(a,b){return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.time < b.time ? -1 : 1)});
 
  h += '<div class="card">';
- h += '<h3>Upcoming Appointments</h3>';
+ h += '<h3 style="display:flex;align-items:center;justify-content:space-between">Upcoming Appointments';
+ if(isLocal) h += '<button onclick="syncFromCalendar(false)" style="font-size:12px;padding:4px 12px;border-radius:var(--radius);background:var(--pri);color:#fff;border:none;cursor:pointer">🔄 Sync Calendar</button>';
+ h += '</h3>';
  if(upcoming.length === 0){
   h += '<p style="color:var(--muted);font-size:12px">No upcoming appointments. Set meetings from lead details.</p>';
  } else {
@@ -10421,6 +10544,8 @@ firebaseLoadAll(function(pulled){
 });
 // Auto-backup check
 checkAutoBackup();
+// Calendar resync on startup (localhost only, after Firebase data is loaded)
+setTimeout(function(){ syncFromCalendar(true); }, 3000);
 // Auto-poll Firebase every 60 seconds for changes from other devices
 setInterval(function(){
  if(_fbSyncing || _fbSuppressSync) return;
