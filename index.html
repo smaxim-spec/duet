@@ -1399,6 +1399,14 @@ function calcCase(c){
  return {origGross:origGross, steveShare:steveShare, partnerGets:partnerGets, fullComm:fullComm};
 }
 
+// Sum net pay including extraDeposits (COE bonuses, etc.) from DuetBooks pay periods
+function calcYtdNet(periods){
+ return periods.reduce(function(s,p){
+  var extraNet = (p.extraDeposits||[]).reduce(function(es,e){return es+(e.net||0)},0);
+  return s + (p.net||0) + extraNet;
+ },0);
+}
+
 function tierLabel(mma){
  if(mma >= 6667) return '<span class="badge badge-grn">T4</span>';
  if(mma >= 5000) return '<span class="badge badge-amb">T3</span>';
@@ -1488,7 +1496,7 @@ function renderWalkthrough(){
 
  // Base pay calculation: gross minus varicent bonus minus banking incentive
  var ytdGross = pe.reduce(function(s,p){return s+p.gross},0);
- var ytdNet = pe.reduce(function(s,p){return s+p.net},0);
+ var ytdNet = calcYtdNet(pe);
  var ytdBasePay = pe.reduce(function(s,p){return s + Math.max(0, p.gross - p.varicent - p.banking)},0);
  // Split agent totals
  var ytdPartnerPaid = pl.reduce(function(s,c){
@@ -1625,7 +1633,7 @@ function renderDash(){
   monthMma[p.month] = p.mma; // last period's 3MMA for that month
  });
 
- var ytdNet = pe.reduce(function(s,p){return s+p.net},0);
+ var ytdNet = calcYtdNet(pe);
  var ytdVaricent = pe.reduce(function(s,p){return s+p.varicent},0);
  var ytdGross = pe.reduce(function(s,p){return s+p.gross},0);
  var latestMma = pe.length ? pe[pe.length-1].mma : 0;
@@ -2676,7 +2684,7 @@ function genReport(){
 
  // Stats
  var latestMma = pe.length ? pe[pe.length-1].mma : 0;
- var ytdNet = pe.reduce(function(s,p){return s+p.net},0);
+ var ytdNet = calcYtdNet(pe);
  var periodsCount = pe.length;
  var projAnnual = periodsCount > 0 ? (ytdNet / periodsCount) * 24 : 0;
 
@@ -4367,7 +4375,7 @@ function showWeeklyCoach(){
  }).length;
 
  // Pipeline / $100K tracking
- var ytdNet = pe.reduce(function(s,p){return s+p.net},0);
+ var ytdNet = calcYtdNet(pe);
  var takeHomeRate = 0.70;
  var pipelineComm = pl.filter(function(c){return c.status!=='paid'}).reduce(function(s,c){return s+calcCase(c).steveShare},0);
  var pipelineNet = pipelineComm * takeHomeRate;
@@ -5047,7 +5055,7 @@ function renderFunnelHealth(){
  var monthVaricent = {};
  months.forEach(function(m){ monthVaricent[m]=0; });
  pe.forEach(function(p){ monthVaricent[p.month] += p.varicent; });
- var ytdNet = pe.reduce(function(s,p){return s+p.net},0);
+ var ytdNet = calcYtdNet(pe);
  var ytdVaricent = pe.reduce(function(s,p){return s+p.varicent},0);
  var monthsWithData = months.filter(function(m){ return monthVaricent[m] > 0; });
  var completedMonths = monthsWithData.length || 1;
@@ -5800,7 +5808,7 @@ function renderCallQueue(){
  bfTomorrowMeetings.sort(function(a,b){ return a.time < b.time ? -1 : 1; });
 
  // Pace
- var bfYtdNet = pe.reduce(function(s,p){return s+p.net},0);
+ var bfYtdNet = calcYtdNet(pe);
  var bfGoal = 100000;
  var bfPct = Math.min(100, (bfYtdNet / bfGoal) * 100);
  var bfMonthsLeft = Math.max(1, 12 - now.getMonth());
