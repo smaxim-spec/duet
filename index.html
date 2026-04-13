@@ -792,7 +792,49 @@ var products = [
  {name:'AAA Membership',cat:'Banking / CD / Other',rate:0,basis:'flat fee',pct:false,flat:true}
 ];
 
-function findProd(n){ return products.find(function(p){return p.name===n}) || products[0]; }
+function findProd(n){
+ if(!n) return products[0];
+ // Exact match first
+ var exact = products.find(function(p){return p.name===n});
+ if(exact) return exact;
+ // Fuzzy match: check if either name contains the other, or share a meaningful keyword
+ var nl = n.toLowerCase();
+ var fuzzy = products.find(function(p){
+  var pl = p.name.toLowerCase();
+  return pl.indexOf(nl) >= 0 || nl.indexOf(pl) >= 0;
+ });
+ if(fuzzy) return fuzzy;
+ // Match by product code in parentheses — e.g., "Platinum Annuity 5 (PL5NQ)" matches "Platinum Annuity 5 External (ages 0-79)"
+ var baseWords = nl.replace(/\s*\(.*\)\s*/g,'').trim().split(/\s+/);
+ if(baseWords.length >= 2){
+  fuzzy = products.find(function(p){
+   var pl = p.name.toLowerCase();
+   return baseWords.every(function(w){ return pl.indexOf(w) >= 0; });
+  });
+  if(fuzzy) return fuzzy;
+ }
+ // Special known mappings for DuetBooks product names
+ var mappings = {
+  'ordinary life': 'Whole Life (W21GN / RWL21)',
+  'certificate of deposit': 'Certificate of Deposit (CD)',
+  'bonus annuity': 'Platinum Bonus 5 (AAA Life)',
+  '10 & 15 yr term': '15-Year Term',
+  '20 yr tlc term': '20-Year Term',
+  '25 & 30 yr term': '30-Year Term',
+  '7 yr guaranteed annuity': 'Elite3 Guarantee External',
+  'landmark 5': 'MM Landmark 5 External (ages 0-75)',
+  'american legend 7': 'MM American Legend 7 External (ages 0-75)',
+  'securian eclipse': 'Securian Eclipse UL (brokered)'
+ };
+ var keys = Object.keys(mappings);
+ for(var i=0;i<keys.length;i++){
+  if(nl.indexOf(keys[i]) >= 0){
+   var mapped = products.find(function(p){return p.name === mappings[keys[i]]});
+   if(mapped) return mapped;
+  }
+ }
+ return products[0];
+}
 
 // ── 2025 ACTUAL DATA (from Varicent statements) ──
 function demoPipeline(){ return []; }
@@ -1369,33 +1411,29 @@ function fmtInt(n){ return '$' + Number(n).toLocaleString('en-US',{minimumFracti
 function pv(id){ return parseFloat(document.getElementById(id)?.value) || 0; }
 
 function calcCase(c){
+ // If case has a Varicent-imported commission, use it directly (matches DuetBooks logic)
+ if(c.actualCommission){
+  return {origGross:c.actualCommission, steveShare:c.actualCommission, partnerGets:0, fullComm:c.actualCommission};
+ }
+
  var p = findProd(c.product);
  var origGross, steveShare, partnerGets, fullComm;
- if(p.flat){
-  // Flat fee: amount IS the commission
-  origGross = c.amount;
-  if(c.split === 'split'){
-   steveShare = c.amount; // Varicent already paid you this (your 80%)
-   fullComm = c.amount / (settings.yourShare/100); // reverse to get full commission
-   partnerGets = fullComm * (settings.partnerShare/100);
-  } else {
-   steveShare = c.amount;
-   fullComm = c.amount;
-   partnerGets = 0;
-  }
- } else {
-  // Amount × Rate = your commission (already your 80% share for splits)
-  origGross = c.amount * (c.rate / 100);
-  if(c.split === 'split'){
-   steveShare = origGross; // this IS your 80% — Varicent already split it
-   fullComm = origGross / (settings.yourShare/100); // full commission before split
-   partnerGets = fullComm * (settings.partnerShare/100);
-  } else {
-   steveShare = origGross;
-   fullComm = origGross;
-   partnerGets = 0;
-  }
+
+ // Calculate full commission before any split
+ fullComm = p.flat ? c.amount : c.amount * (c.rate / 100);
+ origGross = fullComm;
+
+ // Determine split percentages: 'life' = 50/50, 'pc'/'split' = 80/20, 'full' = 100%
+ var yourPct = 100, partnerPct = 0;
+ if(c.split === 'life'){
+  yourPct = 50; partnerPct = 50;
+ } else if(c.split === 'pc' || c.split === 'split'){
+  yourPct = settings.yourShare || 80;
+  partnerPct = settings.partnerShare || 20;
  }
+ steveShare = fullComm * (yourPct/100);
+ partnerGets = fullComm * (partnerPct/100);
+
  return {origGross:origGross, steveShare:steveShare, partnerGets:partnerGets, fullComm:fullComm};
 }
 
