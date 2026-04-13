@@ -1444,6 +1444,12 @@ function calcYtdNet(periods){
   return s + (p.net||0) + extraNet;
  },0);
 }
+function calcYtdGross(periods){
+ return periods.reduce(function(s,p){
+  var extraGross = (p.extraDeposits||[]).reduce(function(es,e){return es+(e.gross||0)},0);
+  return s + (p.gross||0) + extraGross;
+ },0);
+}
 
 function tierLabel(mma){
  if(mma >= 6667) return '<span class="badge badge-grn">T4</span>';
@@ -1533,7 +1539,7 @@ function renderWalkthrough(){
  var banking = pl.filter(function(c){return c.product.indexOf('CD')>=0 || c.product.indexOf('Membership')>=0 || c.product.indexOf('Credit')>=0}).length;
 
  // Base pay calculation: gross minus varicent bonus minus banking incentive
- var ytdGross = pe.reduce(function(s,p){return s+p.gross},0);
+ var ytdGross = calcYtdGross(pe);
  var ytdNet = calcYtdNet(pe);
  var ytdBasePay = pe.reduce(function(s,p){return s + Math.max(0, p.gross - p.varicent - p.banking)},0);
  // Split agent totals
@@ -1673,7 +1679,7 @@ function renderDash(){
 
  var ytdNet = calcYtdNet(pe);
  var ytdVaricent = pe.reduce(function(s,p){return s+p.varicent},0);
- var ytdGross = pe.reduce(function(s,p){return s+p.gross},0);
+ var ytdGross = calcYtdGross(pe);
  var latestMma = pe.length ? pe[pe.length-1].mma : 0;
  var openCases = pl.filter(function(c){return c.status!=='paid'}).length;
  var openComm = pl.filter(function(c){return c.status!=='paid'}).reduce(function(s,c){return s+calcCase(c).steveShare},0);
@@ -1805,7 +1811,7 @@ function renderDash(){
  compPe.forEach(function(p){ compMonths[p.month] += p.varicent; });
  var compYtdVaricent = compPe.reduce(function(s,p){return s+p.varicent},0);
  var compYtdNet = compPe.reduce(function(s,p){return s+p.net},0);
- var compYtdGross = compPe.reduce(function(s,p){return s+p.gross},0);
+ var compYtdGross = calcYtdGross(compPe);
  var compCases = compPl.length;
 
  h += '<div class="card"><h3 style="color:var(--pri)">Year-over-Year: '+activeYear+' vs '+compYear+'</h3>';
