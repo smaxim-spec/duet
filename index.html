@@ -4149,6 +4149,275 @@ function saveNeedsAnalysis(leadId){
  renderCRM();
 }
 
+// ── CREATE CASE MODAL ──
+// DuetBooks products grouped by category for the dropdown
+var BOOKS_PRODUCTS = [
+ {cat:'Life (Whole / Term)', items:[
+  {name:'Whole Life (W21GN / RWL21)',rate:75,split:'life'},
+  {name:'Whole Life (SIWL) Conversion',rate:40,split:'life'},
+  {name:'Guaranteed Issue Whole Life (GIWL)',rate:50,split:'life'},
+  {name:'Life Paid Up at 65 (conversion)',rate:90,split:'life'},
+  {name:'10-Year Term',rate:75,split:'life'},
+  {name:'15-Year Term',rate:75,split:'life'},
+  {name:'20-Year Term',rate:80,split:'life'},
+  {name:'30-Year Term',rate:100,split:'life'}
+ ]},
+ {cat:'IUL / Universal Life', items:[
+  {name:'AAA Accumulator - Target Premium',rate:105,split:'life'},
+  {name:'AAA Accumulator - Excess Premium',rate:3.5,split:'life'},
+  {name:'AAA LifeTime UL - Target (age 79-)',rate:105,split:'life'},
+  {name:'AAA LifeTime UL - Target (age 80+)',rate:100,split:'life'},
+  {name:'Securian Eclipse UL (target/planned)',rate:70,split:'life'}
+ ]},
+ {cat:'Annuities', items:[
+  {name:'Platinum Annuity 5 External (ages 0-79)',rate:2.85,split:'pc'},
+  {name:'Platinum Annuity 5 External (ages 80-85)',rate:2.75,split:'pc'},
+  {name:'Platinum Annuity 5 Internal (ages 0-79)',rate:1.85,split:'pc'},
+  {name:'Elite3 Guarantee External',rate:1.25,split:'pc'},
+  {name:'Elite3 Guarantee Internal',rate:0.20,split:'pc'},
+  {name:'GIA External Funds (ages 0-79)',rate:2.80,split:'pc'},
+  {name:'GIA Internal Funds (ages 0-79)',rate:1.80,split:'pc'},
+  {name:'American Legend 7 External (ages 0-75)',rate:2.85,split:'pc'},
+  {name:'American Legend 7 External (ages 76+)',rate:2.75,split:'pc'},
+  {name:'Safe Return External (ages 0-75)',rate:2.85,split:'pc'},
+  {name:'Landmark 3 External (ages 0-75)',rate:2.75,split:'pc'},
+  {name:'Landmark 5 External (ages 0-75)',rate:2.85,split:'pc'},
+  {name:'Premier Bonus External (ages 0-75)',rate:2.85,split:'pc'},
+  {name:'Premier Income Bonus External (ages 0-75)',rate:2.85,split:'pc'}
+ ]},
+ {cat:'Banking / CD / Other', items:[
+  {name:'Certificate of Deposit (CD)',rate:0.05,split:'pc'},
+  {name:'Credit Card',rate:0,split:'full',flat:true},
+  {name:'AAA Membership',rate:0,split:'full',flat:true}
+ ]}
+];
+
+function findBooksProduct(name){
+ for(var g=0;g<BOOKS_PRODUCTS.length;g++){
+  for(var i=0;i<BOOKS_PRODUCTS[g].items.length;i++){
+   if(BOOKS_PRODUCTS[g].items[i].name === name) return BOOKS_PRODUCTS[g].items[i];
+  }
+ }
+ return null;
+}
+
+function showCreateCaseModal(leadId){
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead) return;
+
+ // Remove existing modal if any
+ var old = document.getElementById('createCaseModal');
+ if(old) old.remove();
+
+ var overlay = document.createElement('div');
+ overlay.id = 'createCaseModal';
+ overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+ overlay.onclick = function(e){ if(e.target === overlay) overlay.remove(); };
+
+ var m = '<div style="background:var(--bg);border-radius:12px;padding:20px;width:90%;max-width:500px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">';
+ m += '<h3 style="margin:0 0 4px 0;color:var(--grn)">Create Case for DuetBooks</h3>';
+ m += '<p style="margin:0 0 14px 0;font-size:12px;color:var(--muted)">This will push directly to DuetBooks as a new pipeline case.</p>';
+
+ // Client (locked)
+ m += '<div style="margin-bottom:10px">';
+ m += '<label style="font-size:11px;font-weight:600;color:var(--muted)">Client</label>';
+ m += '<div style="font-size:14px;font-weight:700">'+lead.name+' &nbsp;<span style="font-size:11px;color:var(--muted)">'+lead.phone+'</span></div>';
+ m += '</div>';
+
+ // Product dropdown (grouped)
+ m += '<div style="margin-bottom:10px">';
+ m += '<label style="font-size:11px;font-weight:600;color:var(--muted)">Product *</label>';
+ m += '<select id="ccm_product" onchange="ccmProductChanged()" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">';
+ m += '<option value="">— Select Product —</option>';
+ BOOKS_PRODUCTS.forEach(function(g){
+  m += '<optgroup label="'+g.cat+'">';
+  g.items.forEach(function(p){ m += '<option value="'+p.name+'">'+p.name+'</option>'; });
+  m += '</optgroup>';
+ });
+ m += '</select></div>';
+
+ // Amount + Rate (side by side)
+ m += '<div style="display:flex;gap:10px;margin-bottom:10px">';
+ m += '<div style="flex:1"><label style="font-size:11px;font-weight:600;color:var(--muted)">Amount / Premium *</label>';
+ m += '<input id="ccm_amount" type="number" step="0.01" placeholder="e.g. 50000" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)"></div>';
+ m += '<div style="width:80px"><label style="font-size:11px;font-weight:600;color:var(--muted)">Rate %</label>';
+ m += '<input id="ccm_rate" type="number" step="0.01" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)"></div>';
+ m += '</div>';
+
+ // Split type + Agent
+ m += '<div style="display:flex;gap:10px;margin-bottom:10px">';
+ m += '<div style="flex:1"><label style="font-size:11px;font-weight:600;color:var(--muted)">Split Type</label>';
+ m += '<select id="ccm_split" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">';
+ m += '<option value="full">Full (100%)</option>';
+ m += '<option value="life">Life Split (50/50)</option>';
+ m += '<option value="pc">P&C Split (80/20)</option>';
+ m += '</select></div>';
+ m += '<div style="flex:1"><label style="font-size:11px;font-weight:600;color:var(--muted)">Split Agent</label>';
+ m += '<select id="ccm_agent" onchange="ccmAgentChanged()" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">';
+ m += '<option value="">None (Full Commission)</option>';
+ splitAgents.forEach(function(a){ m += '<option value="'+a.name+'"'+(lead.agent===a.name?' selected':'')+'>'+a.name+'</option>'; });
+ m += '</select></div></div>';
+
+ // Status
+ m += '<div style="margin-bottom:10px">';
+ m += '<label style="font-size:11px;font-weight:600;color:var(--muted)">Status</label>';
+ m += '<select id="ccm_status" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">';
+ m += '<option value="submitted" selected>Submitted</option>';
+ m += '<option value="pending">Pending</option>';
+ m += '<option value="approved">Approved</option>';
+ m += '<option value="issued">Issued</option>';
+ m += '</select></div>';
+
+ // Notes
+ m += '<div style="margin-bottom:14px">';
+ m += '<label style="font-size:11px;font-weight:600;color:var(--muted)">Notes</label>';
+ m += '<input id="ccm_notes" type="text" placeholder="Optional notes" value="From CRM lead #'+lead.id+'" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)"></div>';
+
+ // Commission preview
+ m += '<div id="ccm_preview" style="margin-bottom:14px;padding:8px 12px;background:var(--ptint);border-radius:8px;font-size:12px;color:var(--muted)">Select a product and enter amount to see commission preview</div>';
+
+ // Buttons
+ m += '<div style="display:flex;gap:10px;justify-content:flex-end">';
+ m += '<button onclick="document.getElementById(\'createCaseModal\').remove()" style="padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px">Cancel</button>';
+ m += '<button onclick="submitCreateCaseModal('+lead.id+')" style="padding:8px 20px;border-radius:6px;border:none;background:var(--grn);color:#fff;cursor:pointer;font-size:13px;font-weight:700">Create Case</button>';
+ m += '</div></div>';
+
+ overlay.innerHTML = m;
+ document.body.appendChild(overlay);
+
+ // Pre-fill if agent is set
+ if(lead.agent) ccmAgentChanged();
+}
+
+function ccmProductChanged(){
+ var name = $1('#ccm_product').value;
+ var bp = findBooksProduct(name);
+ if(bp){
+  $1('#ccm_rate').value = bp.rate;
+  // Auto-set split type based on product category
+  var agent = $1('#ccm_agent').value;
+  if(agent){
+   $1('#ccm_split').value = bp.split || 'pc';
+  } else {
+   $1('#ccm_split').value = 'full';
+  }
+ }
+ ccmUpdatePreview();
+}
+
+function ccmAgentChanged(){
+ var agent = $1('#ccm_agent').value;
+ if(!agent){
+  $1('#ccm_split').value = 'full';
+ } else {
+  // Set split based on currently selected product
+  var name = $1('#ccm_product').value;
+  var bp = findBooksProduct(name);
+  $1('#ccm_split').value = bp ? (bp.split || 'pc') : 'pc';
+ }
+ ccmUpdatePreview();
+}
+
+function ccmUpdatePreview(){
+ var product = $1('#ccm_product').value;
+ var amount = parseFloat($1('#ccm_amount').value) || 0;
+ var rate = parseFloat($1('#ccm_rate').value) || 0;
+ var split = $1('#ccm_split').value;
+ var el = $1('#ccm_preview');
+ if(!product || !amount){ el.innerHTML = 'Select a product and enter amount to see commission preview'; return; }
+
+ var bp = findBooksProduct(product);
+ var commission = bp && bp.flat ? amount : amount * (rate / 100);
+ var yourPct = split === 'life' ? 50 : split === 'pc' ? 80 : 100;
+ var yourShare = commission * (yourPct / 100);
+
+ el.innerHTML = '<b>Commission Preview:</b> ' + fmt(commission) + ' full' +
+  (split !== 'full' ? ' → <b>' + fmt(yourShare) + '</b> your ' + yourPct + '% share' : ' → <b>' + fmt(commission) + '</b> (full, no split)');
+ el.style.background = 'var(--gtint)';
+ el.style.color = 'var(--grn)';
+}
+
+// Listen for amount changes to update preview
+document.addEventListener('input', function(e){ if(e.target.id === 'ccm_amount' || e.target.id === 'ccm_rate') ccmUpdatePreview(); });
+
+function submitCreateCaseModal(leadId){
+ var product = $1('#ccm_product').value;
+ var amount = parseFloat($1('#ccm_amount').value) || 0;
+ var rate = parseFloat($1('#ccm_rate').value) || 0;
+ var split = $1('#ccm_split').value;
+ var agent = $1('#ccm_agent').value;
+ var status = $1('#ccm_status').value;
+ var notes = $1('#ccm_notes').value.trim();
+
+ if(!product){ showToast('Please select a product', 3000); return; }
+ if(!amount){ showToast('Please enter an amount', 3000); return; }
+
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead) return;
+
+ // Find the agent's email
+ var agentEmail = '';
+ if(agent){
+  var ag = splitAgents.find(function(a){return a.name === agent});
+  if(ag) agentEmail = ag.email || '';
+ }
+
+ var c = {
+  id: Date.now(),
+  client: lead.name,
+  phone: lead.phone || '',
+  product: product,
+  amount: amount,
+  rate: rate,
+  split: agent ? split : 'full',
+  splitName: agent || '',
+  splitEmail: agentEmail,
+  status: status,
+  submitted: new Date().toISOString().substring(0,10),
+  estPay: '',
+  paidDate: '',
+  notes: notes,
+  year: new Date().getFullYear(),
+  created: new Date().toISOString()
+ };
+
+ // Push to DuetBooks Firebase
+ fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
+  .then(function(r){ return r.json(); })
+  .then(function(booksCases){
+   var arr = booksCases || [];
+   if(!Array.isArray(arr)) arr = Object.values(arr);
+   arr.push(c);
+   return fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(arr)
+   });
+  })
+  .then(function(r){
+   if(r.ok){
+    showToast('Case created for '+lead.name+' and pushed to DuetBooks!', 5000);
+   } else {
+    showToast('Case created locally but DuetBooks sync failed', 5000);
+   }
+  })
+  .catch(function(e){
+   console.log('DuetBooks push error:', e);
+   showToast('Case created locally but DuetBooks sync failed', 5000);
+  });
+
+ // Also add to local CRM pipeline
+ pl.push(c);
+ try { localStorage.setItem('salestracker_pl_2026', JSON.stringify(pl2026)); } catch(e){}
+ lead.stage = 'won';
+ saveLeads();
+
+ // Close modal
+ var modal = document.getElementById('createCaseModal');
+ if(modal) modal.remove();
+ renderCRM();
+}
+
 // Map CRM product names → DuetBooks product names
 var CRM_TO_BOOKS_PRODUCT = {
  'AAA Accumulator IUL': 'AAA Accumulator - Target Premium',
@@ -6619,6 +6888,15 @@ function renderLeadDetail(){
   h += '</select>';
  }
  h += '<div style="margin-left:auto;display:flex;gap:4px">';
+ // Create Case button — shown prominently for Won leads with no pipeline case
+ if(lead.stage === 'won'){
+  var hasCase = pl.some(function(c){ return c.client && c.client.toLowerCase() === lead.name.toLowerCase(); });
+  if(!hasCase){
+   h += '<button class="btn btn-sm" onclick="showCreateCaseModal('+lead.id+')" style="background:var(--grn);color:#fff;border:none;padding:2px 10px;font-size:10px;border-radius:4px;cursor:pointer;font-weight:700">+ Create Case</button>';
+  } else {
+   h += '<span style="font-size:9px;color:var(--grn);padding:2px 6px;background:var(--gtint);border-radius:4px;border:1px solid var(--grn)">In DuetBooks</span>';
+  }
+ }
  h += '<button class="btn btn-sm btn-pri" onclick="document.getElementById(\'sched_section_'+lead.id+'\').scrollIntoView({behavior:\'smooth\'})" style="padding:2px 8px;font-size:10px">📅 Schedule</button>';
  if(getCalleyToken()){
   if(lead.calleyPushed){
@@ -6904,7 +7182,7 @@ function renderLeadDetail(){
    } else {
     h += '<h3 style="color:var(--amb)">⚠ No Pipeline Case Found</h3>';
     h += '<p style="font-size:12px">This lead is marked Won but has no matching case in the pipeline.</p>';
-    h += '<button class="btn btn-amb" onclick="createCaseFromLead('+lead.id+')">Create Case Now</button>';
+    h += '<button class="btn btn-amb" onclick="showCreateCaseModal('+lead.id+')">Create Case Now</button>';
    }
    h += '</div>';
   }
