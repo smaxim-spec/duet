@@ -4149,36 +4149,102 @@ function saveNeedsAnalysis(leadId){
  renderCRM();
 }
 
+// Map CRM product names → DuetBooks product names
+var CRM_TO_BOOKS_PRODUCT = {
+ 'AAA Accumulator IUL': 'AAA Accumulator - Target Premium',
+ 'AAA LifeTime UL (age 79 and under)': 'AAA LifeTime UL - Target (age 79-)',
+ 'AAA LifeTime UL (age 80+)': 'AAA LifeTime UL - Target (age 80+)',
+ 'Securian Eclipse UL (brokered)': 'Securian Eclipse UL (target/planned)',
+ 'Platinum Annuity 5 External (ages 0-79)': 'Platinum Annuity 5 External (ages 0-79)',
+ 'Platinum Annuity 5 Internal (ages 0-79)': 'Platinum Annuity 5 Internal (ages 0-79)',
+ 'Elite3 Guarantee External': 'Elite3 Guarantee External',
+ 'MM GIA External Funds (ages 0-79)': 'GIA External Funds (ages 0-79)',
+ 'MM GIA Internal Funds (ages 0-79)': 'GIA Internal Funds (ages 0-79)',
+ 'MM American Legend 7 External (ages 0-75)': 'American Legend 7 External (ages 0-75)',
+ 'MM Safe Return External (ages 0-75)': 'Safe Return External (ages 0-75)',
+ 'MM Landmark 3 External (ages 0-75)': 'Landmark 3 External (ages 0-75)',
+ 'MM Landmark 5 External (ages 0-75)': 'Landmark 5 External (ages 0-75)',
+ 'MM Premier Bonus External (ages 0-75)': 'Premier Bonus External (ages 0-75)',
+ 'MM Premier Income Bonus External (ages 0-75)': 'Premier Income Bonus External (ages 0-75)',
+ 'Platinum Bonus 5 (AAA Life)': 'Platinum Annuity 5 External (ages 0-79)',
+ 'Whole Life (W21GN / RWL21)': 'Whole Life (W21GN / RWL21)',
+ 'Guaranteed Issue Whole Life (GIWL)': 'Guaranteed Issue Whole Life (GIWL)',
+ 'Life Paid Up at 65 (conversion)': 'Life Paid Up at 65 (conversion)',
+ '10-Year Term': '10-Year Term',
+ '15-Year Term': '15-Year Term',
+ '20-Year Term': '20-Year Term',
+ '30-Year Term': '30-Year Term',
+ 'Certificate of Deposit (CD)': 'Certificate of Deposit (CD)',
+ 'Credit Card': 'Credit Card',
+ 'AAA Membership': 'AAA Membership'
+};
+
 function createCaseFromLead(leadId){
  var lead = leads.find(function(l){return l.id === leadId});
  if(!lead) return;
  // Find product match from interest
  var prod = products.find(function(p){return p.name === lead.interest}) || products[0];
  var amt = parseFloat(lead.estPremium) || 0;
+ var booksProduct = CRM_TO_BOOKS_PRODUCT[prod.name] || prod.name;
+
+ // Determine split type: life products use 'life' (50/50), P&C/other splits use 'pc' (80/20)
+ var splitType = 'full';
+ if(lead.agent){
+  var cat = (prod.cat || '').toLowerCase();
+  splitType = (cat.indexOf('life') >= 0 || cat.indexOf('iul') >= 0 || cat.indexOf('universal') >= 0) ? 'life' : 'pc';
+ }
+
+ // Build DuetBooks-compatible case object
  var c = {
-  id: nextId++,
+  id: Date.now(),  // unique ID that won't collide with DuetBooks' nextCaseId
   client: lead.name,
   phone: lead.phone || '',
-  product: prod.name,
+  product: booksProduct,
   amount: amt,
   rate: prod.rate,
-  split: lead.agent ? 'split' : 'full',
+  split: splitType,
   splitName: lead.agent || '',
   splitEmail: '',
   status: 'submitted',
   submitted: new Date().toISOString().substring(0,10),
   estPay: '',
-  paidIn: '',
-  notes: 'From CRM lead #'+lead.id
+  paidDate: '',
+  notes: 'From CRM lead #'+lead.id,
+  year: new Date().getFullYear(),
+  created: new Date().toISOString()
  };
+
+ // Push to DuetBooks Firebase (source of truth)
+ fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
+  .then(function(r){ return r.json(); })
+  .then(function(booksCases){
+   var arr = booksCases || [];
+   if(!Array.isArray(arr)) arr = Object.values(arr);
+   arr.push(c);
+   return fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(arr)
+   });
+  })
+  .then(function(r){
+   if(r.ok){
+    showToast('✅ Case pushed to DuetBooks for '+lead.name, 5000);
+    // DuetBooks cross-sync will push it back to pipeline_2026 on next load
+   } else {
+    showToast('⚠️ Case created locally but DuetBooks sync failed — open DuetBooks to verify', 5000);
+   }
+  })
+  .catch(function(e){
+   console.log('DuetBooks push error:', e);
+   showToast('⚠️ Case created locally but DuetBooks sync failed', 5000);
+  });
+
+ // Also add to local CRM pipeline for immediate dashboard update
  pl.push(c);
- // Save to localStorage for immediate dashboard update
  try { localStorage.setItem('salestracker_pl_2026', JSON.stringify(pl2026)); } catch(e){}
- // Push to Firebase (DuetBooks is the source of truth)
- debouncedFirebaseSync('pipeline_2026');
  lead.stage = 'won';
  saveLeads();
- showToast('Case created for '+lead.name+' — syncing to DuetBooks!', 5000);
  renderCRM();
 }
 
