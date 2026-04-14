@@ -6251,17 +6251,30 @@ function renderCallQueue(){
  h += '<div style="text-align:right"><div style="font-size:24px;font-weight:800;color:var(--pri)">'+bfTotalActions+'</div><div style="font-size:9px;color:var(--muted)">action items</div></div>';
  h += '</div>';
 
- // Coach Journal status — green if entered today, red after 4pm if not entered
+ // Coach Journal status — green if entered today, red if not (stays red until entry is made)
  var cjEntries = getCoachJournal();
  var cjTodayEntry = cjEntries.find(function(e){ return e.date && e.date.substring(0,10) === todayISO; });
- var cjHour = now.getHours();
- var cjIsOverdue = !cjTodayEntry && cjHour >= 16; // red after 4pm
  var cjIsDone = !!cjTodayEntry;
- var cjColor = cjIsDone ? 'var(--grn)' : cjIsOverdue ? '#e74c3c' : 'var(--muted)';
- var cjBg = cjIsDone ? 'rgba(39,174,96,0.08)' : cjIsOverdue ? 'rgba(231,76,60,0.1)' : 'var(--card)';
- var cjBorder = cjIsDone ? 'var(--grn)' : cjIsOverdue ? '#e74c3c' : 'var(--border)';
- var cjIcon = cjIsDone ? '✅' : cjIsOverdue ? '🔴' : '📓';
- var cjLabel = cjIsDone ? 'Journal Done' : cjIsOverdue ? 'Journal Overdue!' : 'Journal';
+ // Check if yesterday (or any recent day) was missed — stays red until today's entry exists
+ var cjIsOverdue = !cjIsDone;
+ // Count consecutive missed days for urgency
+ var cjMissedDays = 0;
+ if(!cjIsDone){
+  for(var di=1; di<=7; di++){
+   var checkDate = new Date(now); checkDate.setDate(checkDate.getDate()-di);
+   var checkISO = checkDate.getFullYear()+'-'+String(checkDate.getMonth()+1).padStart(2,'0')+'-'+String(checkDate.getDate()).padStart(2,'0');
+   var checkDay = checkDate.getDay();
+   if(checkDay === 0 || checkDay === 6) continue; // skip weekends
+   var found = cjEntries.find(function(e){ return e.date && e.date.substring(0,10) === checkISO; });
+   if(!found) cjMissedDays++;
+   else break;
+  }
+ }
+ var cjColor = cjIsDone ? 'var(--grn)' : '#e74c3c';
+ var cjBg = cjIsDone ? 'rgba(39,174,96,0.08)' : 'rgba(231,76,60,0.1)';
+ var cjBorder = cjIsDone ? 'var(--grn)' : '#e74c3c';
+ var cjIcon = cjIsDone ? '✅' : '🔴';
+ var cjLabel = cjIsDone ? 'Journal Done' : cjMissedDays > 1 ? cjMissedDays+' days missed!' : 'Enter Journal';
 
  // Quick stats row
  h += '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px">';
