@@ -1044,7 +1044,7 @@ function toYMD(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,
 
 // ── CALLEY INTEGRATION ──
 var CALLEY_PROXY = '/calley-proxy'; // routes through duet_server.py proxy
-var CALLEY_DEFAULT_LIST_ID = 'mcl-5459A370-35FE-4176-AA44-0BBE6E879340'; // "Duet 3" list (general/default)
+var CALLEY_DEFAULT_LIST_ID = 'mcl-E819773E-8420-476D-83B5-6832C1E8C801'; // "New Leads" — single working list
 // Stage-based Calley lists — export uses the matching list name in filename
 var CALLEY_STAGE_LISTS = {
  'quoted':    { id: 'mcl-400C638F-1A00-470C-9A72-EDC23CD34B97', name: 'Quoted Nurturing' },
@@ -1211,6 +1211,28 @@ function calleyPushFiltered(){
   });
  }
  pushNext(0);
+}
+
+function calleyResetAndPush(){
+ if(!confirm('This will clear all Calley push flags and re-push active leads (excluding Won, Lost, and Bad #). Continue?')) return;
+ // Reset calleyPushed flags on all active leads
+ var resetCount = 0;
+ leads.forEach(function(l){
+  if(l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'){
+   var cl = l.callLog || [];
+   var lastOutcome = cl.length > 0 ? (cl[cl.length-1].outcome || '') : '';
+   if(lastOutcome !== 'Bad #' && lastOutcome !== 'Bad Number' && lastOutcome !== 'Wrong Number'){
+    l.calleyPushed = false;
+    l.calleyPushedDate = null;
+    resetCount++;
+   }
+  }
+ });
+ saveLeads();
+ showToast('🔄 Reset ' + resetCount + ' leads — now re-pushing...', 3000);
+ // Re-render to pick up new counts, then auto-push
+ renderCRM();
+ setTimeout(function(){ calleyPushFiltered(); }, 1000);
 }
 
 function calleyExportCSV(){
@@ -6408,24 +6430,34 @@ function renderCallQueue(){
 
  // Calley integration bar (after filter so it shows count for visible leads)
  if(getCalleyToken()){
-  var calleyFilteredLeads = filteredQueue.filter(function(l){return !l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'});
+  // Filter: exclude won, lost, bad numbers, and already-pushed leads
+  var calleyFilteredLeads = filteredQueue.filter(function(l){
+   if(l.calleyPushed || l.stage === 'won' || l.stage === 'lost') return false;
+   // Exclude bad phone numbers
+   var ph = (l.phone||'').replace(/\D/g,'');
+   if(!ph || ph.length < 10) return false;
+   var cl = l.callLog || [];
+   if(cl.length > 0){
+    var lastOutcome = cl[cl.length-1].outcome || '';
+    if(lastOutcome === 'Bad #' || lastOutcome === 'Bad Number' || lastOutcome === 'Wrong Number') return false;
+   }
+   return true;
+  });
   var calleyCount = calleyFilteredLeads.length;
+  // Count already pushed
+  var calleyPushedCount = filteredQueue.filter(function(l){return l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'}).length;
   var filterLabel = crmQueueFilter === 'all' ? 'All' : crmQueueFilter === 'call_today' ? 'Call Today' : crmQueueFilter === 'need_morning' ? 'Morning' : crmQueueFilter === 'need_afternoon' ? 'Afternoon' : crmQueueFilter === 'need_evening' ? 'Evening' : crmQueueFilter === 'new' ? 'New' : crmQueueFilter === 'attempting' ? 'Attempting' : crmQueueFilter === 'connected' ? 'Connected' : crmQueueFilter === 'discovery' ? 'Discovery' : crmQueueFilter === 'incubator' ? 'Nurturing' : crmQueueFilter === 'meeting' ? 'Meeting Set' : crmQueueFilter === 'quoted' ? 'Quoted' : crmQueueFilter;
   h += '<div class="card" style="padding:6px 12px;margin-bottom:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,var(--atint),var(--card));border:1px solid #ff6b35">';
   h += '<span style="font-size:13px">📱</span>';
-  h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley</span>';
-  h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">Push ' + calleyCount + ' ' + filterLabel + ' leads to Calley</button>';
+  h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley → New Leads</span>';
+  if(calleyCount > 0) h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">Push ' + calleyCount + ' new leads</button>';
+  if(calleyPushedCount > 0) h += '<button class="btn btn-sm" onclick="calleyResetAndPush()" style="background:#e67e22;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Reset & Re-Push ' + calleyPushedCount + ' leads</button>';
   h += '<span id="calleyPushCount" data-leads=\''+JSON.stringify(calleyFilteredLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
   var exportableLeads = filteredQueue.filter(function(l){return l.stage !== 'won' && l.stage !== 'lost'});
   h += '<button class="btn btn-sm" onclick="calleyExportCSV()" style="background:#27ae60;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">📁 Export ' + exportableLeads.length + ' to XLS</button>';
   h += '<span id="calleyExportList" data-leads=\''+JSON.stringify(exportableLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
   h += '<span id="calleyFilterLabel" style="display:none">'+filterLabel+'</span>';
-  var stageKey = crmQueueFilter === 'meeting' ? 'meeting_set' : crmQueueFilter;
-  h += '<span id="calleyStageKey" style="display:none">'+stageKey+'</span>';
-  // Show which Calley list this stage maps to
-  var mappedList = CALLEY_STAGE_LISTS[stageKey];
-  if(mappedList) h += '<span style="font-size:9px;color:#ff6b35;margin-left:2px">→ ' + mappedList.name + '</span>';
-  h += '<button class="btn btn-sm" onclick="calleySyncResults()" style="background:#2980b9;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Sync Results</button>';
+  if(calleyPushedCount > 0) h += '<span style="font-size:9px;color:#ff6b35">📱 '+calleyPushedCount+' in Calley</span>';
   var lastSync = localStorage.getItem('calley_last_sync');
   if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
   h += '</div>';

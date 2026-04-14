@@ -1,0 +1,12 @@
+*.json
+!package.json
+*.pdf
+*.py
+*.csv
+*.xlsx
+*.docx
+*.command
+.DS_Store
+client_secret_*
+google_credentials.json
+google_token.json
