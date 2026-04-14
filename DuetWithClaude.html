@@ -6897,6 +6897,10 @@ function renderLeadDetail(){
    h += '<span style="font-size:9px;color:var(--grn);padding:2px 6px;background:var(--gtint);border-radius:4px;border:1px solid var(--grn)">In DuetBooks</span>';
   }
  }
+ if(lead.stage === 'won' || lead.stage === 'lost'){
+  h += '<button class="btn btn-sm" onclick="document.getElementById(\'repeat_section_'+lead.id+'\').scrollIntoView({behavior:\'smooth\'})" style="background:var(--pri);color:#fff;border:none;padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer">🔄 New Opp</button>';
+  h += '<button class="btn btn-sm" onclick="document.getElementById(\'callback_section_'+lead.id+'\').scrollIntoView({behavior:\'smooth\'})" style="background:#e74c3c;color:#fff;border:none;padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer">📅 Callback</button>';
+ }
  h += '<button class="btn btn-sm btn-pri" onclick="document.getElementById(\'sched_section_'+lead.id+'\').scrollIntoView({behavior:\'smooth\'})" style="padding:2px 8px;font-size:10px">📅 Schedule</button>';
  if(getCalleyToken()){
   if(lead.calleyPushed){
@@ -7187,13 +7191,13 @@ function renderLeadDetail(){
    h += '</div>';
   }
   // New Opportunity button
-  h += '<div class="card" style="margin-top:12px;border:2px solid var(--pri);background:var(--ptint)">';
+  h += '<div id="repeat_section_'+lead.id+'" class="card" style="margin-top:12px;border:2px solid var(--pri);background:var(--ptint)">';
   h += '<h3 style="color:var(--pri)">🔄 Repeat Business</h3>';
   h += '<p style="font-size:12px;margin-bottom:8px">Reopen this client for a new product opportunity. Their contact info stays, history is archived.</p>';
   h += '<button class="btn btn-pri" onclick="promptReopenLead('+lead.id+')">New Opportunity</button>';
   h += '</div>';
   // Callback scheduling for won/lost
-  h += '<div class="card" style="margin-top:12px;border:2px solid #e74c3c;background:#fff5f5">';
+  h += '<div id="callback_section_'+lead.id+'" class="card" style="margin-top:12px;border:2px solid #e74c3c;background:#fff5f5">';
   h += '<h3 style="color:#e74c3c">📅 Schedule Callback</h3>';
   if(lead.callbackDate){
    h += '<p style="font-size:12px;margin-bottom:8px">Callback set for <b>'+lead.callbackDate+'</b>';
