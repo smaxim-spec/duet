@@ -1214,22 +1214,39 @@ function calleyPushFiltered(){
 }
 
 function calleyResetAndPush(){
- if(!confirm('This will clear all Calley push flags and re-push active leads (excluding Won, Lost, and Bad #). Continue?')) return;
- // Reset calleyPushed flags on all active leads
+ // Determine which stages to reset based on current filter
+ var filterStage = crmQueueFilter;
+ var stageMap = {
+  'new':'new', 'attempting':'attempting', 'connected':'connected',
+  'discovery':'discovery', 'incubator':'incubator', 'meeting':'meeting_set',
+  'quoted':'quoted', 'app_submitted':'app_submitted',
+  'call_today':'call_today', 'need_morning':'need_morning',
+  'need_afternoon':'need_afternoon', 'need_evening':'need_evening'
+ };
+ var targetStage = stageMap[filterStage] || null; // null = all stages
+ var filterName = filterStage === 'all' ? 'ALL active' : filterStage === 'call_today' ? 'Call Today' : filterStage === 'need_morning' ? 'Morning' : filterStage === 'need_afternoon' ? 'Afternoon' : filterStage === 'need_evening' ? 'Evening' : filterStage.charAt(0).toUpperCase() + filterStage.slice(1);
+
+ if(!confirm('Reset & re-push ' + filterName + ' leads to Calley?\n\n(Clear the Calley list first in the web panel for a clean start)')) return;
+
+ // Reset calleyPushed flags only for leads matching current filter
  var resetCount = 0;
  leads.forEach(function(l){
-  if(l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'){
-   var cl = l.callLog || [];
-   var lastOutcome = cl.length > 0 ? (cl[cl.length-1].outcome || '') : '';
-   if(lastOutcome !== 'Bad #' && lastOutcome !== 'Bad Number' && lastOutcome !== 'Wrong Number'){
-    l.calleyPushed = false;
-    l.calleyPushedDate = null;
-    resetCount++;
-   }
+  if(l.stage === 'won' || l.stage === 'lost') return;
+  // If filtered to a specific stage, only reset that stage
+  if(targetStage && l.stage !== targetStage) return;
+  var cl = l.callLog || [];
+  var lastOutcome = cl.length > 0 ? (cl[cl.length-1].outcome || '') : '';
+  if(lastOutcome === 'Bad #' || lastOutcome === 'Bad Number' || lastOutcome === 'Wrong Number') return;
+  var ph = (l.phone||'').replace(/\D/g,'');
+  if(!ph || ph.length < 10) return;
+  if(l.calleyPushed){
+   l.calleyPushed = false;
+   l.calleyPushedDate = null;
+   resetCount++;
   }
  });
  saveLeads();
- showToast('🔄 Reset ' + resetCount + ' leads — now re-pushing...', 3000);
+ showToast('🔄 Reset ' + resetCount + ' ' + filterName + ' leads — now re-pushing...', 3000);
  // Re-render to pick up new counts, then auto-push
  renderCRM();
  setTimeout(function(){ calleyPushFiltered(); }, 1000);
@@ -6451,7 +6468,7 @@ function renderCallQueue(){
   h += '<span style="font-size:13px">📱</span>';
   h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley → New Leads</span>';
   if(calleyCount > 0) h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">Push ' + calleyCount + ' new leads</button>';
-  if(calleyPushedCount > 0) h += '<button class="btn btn-sm" onclick="calleyResetAndPush()" style="background:#e67e22;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Reset & Re-Push ' + calleyPushedCount + ' leads</button>';
+  if(calleyPushedCount > 0) h += '<button class="btn btn-sm" onclick="calleyResetAndPush()" style="background:#e67e22;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Reset & Re-Push ' + calleyPushedCount + ' ' + filterLabel + '</button>';
   h += '<span id="calleyPushCount" data-leads=\''+JSON.stringify(calleyFilteredLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
   var exportableLeads = filteredQueue.filter(function(l){return l.stage !== 'won' && l.stage !== 'lost'});
   h += '<button class="btn btn-sm" onclick="calleyExportCSV()" style="background:#27ae60;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">📁 Export ' + exportableLeads.length + ' to XLS</button>';
