@@ -173,6 +173,7 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 .fb-status-wontdo{background:#fce4ec;color:#c62828}
 .dial-prompt{position:fixed;top:0;left:0;right:0;background:var(--dgrn);color:#fff;padding:12px 20px;z-index:9999;display:flex;align-items:center;justify-content:center;gap:12px;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.25);animation:slideDown .25s}
 @keyframes slideDown{from{transform:translateY(-100%)}to{transform:translateY(0)}}
+@keyframes cjPulse{0%,100%{box-shadow:0 0 0 0 rgba(231,76,60,0.4)}50%{box-shadow:0 0 12px 4px rgba(231,76,60,0.3)}}
 .dial-prompt button{padding:6px 16px;border-radius:6px;border:none;font-size:13px;font-weight:700;cursor:pointer}
 .dial-prompt .dial-yes{background:#fff;color:var(--dgrn)}
 .dial-prompt .dial-no{background:rgba(255,255,255,.2);color:#fff}
@@ -6250,13 +6251,29 @@ function renderCallQueue(){
  h += '<div style="text-align:right"><div style="font-size:24px;font-weight:800;color:var(--pri)">'+bfTotalActions+'</div><div style="font-size:9px;color:var(--muted)">action items</div></div>';
  h += '</div>';
 
+ // Coach Journal status — green if entered today, red after 4pm if not entered
+ var cjEntries = getCoachJournal();
+ var cjTodayEntry = cjEntries.find(function(e){ return e.date && e.date.substring(0,10) === todayISO; });
+ var cjHour = now.getHours();
+ var cjIsOverdue = !cjTodayEntry && cjHour >= 16; // red after 4pm
+ var cjIsDone = !!cjTodayEntry;
+ var cjColor = cjIsDone ? 'var(--grn)' : cjIsOverdue ? '#e74c3c' : 'var(--muted)';
+ var cjBg = cjIsDone ? 'rgba(39,174,96,0.08)' : cjIsOverdue ? 'rgba(231,76,60,0.1)' : 'var(--card)';
+ var cjBorder = cjIsDone ? 'var(--grn)' : cjIsOverdue ? '#e74c3c' : 'var(--border)';
+ var cjIcon = cjIsDone ? '✅' : cjIsOverdue ? '🔴' : '📓';
+ var cjLabel = cjIsDone ? 'Journal Done' : cjIsOverdue ? 'Journal Overdue!' : 'Journal';
+
  // Quick stats row
- h += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px">';
+ h += '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px">';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfCallsLeft===0?'var(--grn)':'var(--pri)')+'">'+bfCallsLeft+'</div><div style="font-size:9px;color:var(--muted)">calls left</div></div>';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfQuotedDue.length>0?'var(--amb)':'var(--grn)')+'">'+bfQuotedDue.length+'</div><div style="font-size:9px;color:var(--muted)">quoted f/u</div></div>';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:var(--pri)">'+bfTodayMeetings.length+'</div><div style="font-size:9px;color:var(--muted)">meetings</div></div>';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfActionItemCount>0?'var(--amb)':'var(--grn)')+'">'+bfActionItemCount+'</div><div style="font-size:9px;color:var(--muted)">action items</div></div>';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:var(--pri)">'+bfPct.toFixed(0)+'%</div><div style="font-size:9px;color:var(--muted)">to $100K</div></div>';
+ h += '<div class="bf-stat" onclick="showCoachJournal()" style="cursor:pointer;background:'+cjBg+';padding:6px 8px;border-radius:6px;text-align:center;border:2px solid '+cjBorder+';transition:all .3s'+(cjIsOverdue?';animation:cjPulse 2s infinite':'')+'">';
+ h += '<div style="font-size:18px">'+cjIcon+'</div>';
+ h += '<div style="font-size:9px;color:'+cjColor+';font-weight:'+(cjIsOverdue?'800':'600')+'">'+cjLabel+'</div>';
+ h += '</div>';
  h += '</div>';
 
  // Today's priority list
