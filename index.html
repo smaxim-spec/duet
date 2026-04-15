@@ -6067,7 +6067,17 @@ function renderCRM(){
  // Header with view toggles
  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">';
  h += '<h2 style="color:var(--pri);margin:0">My CRM</h2>';
- h += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
+ h += '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">';
+ // Coach Journal button in nav bar
+ var _cjE = getCoachJournal();
+ var _cjNow = new Date();
+ var _cjToday = _cjNow.getFullYear()+'-'+String(_cjNow.getMonth()+1).padStart(2,'0')+'-'+String(_cjNow.getDate()).padStart(2,'0');
+ var _cjDone = _cjE.some(function(e){ return e.date && e.date.substring(0,10) === _cjToday; });
+ if(_cjDone){
+  h += '<button class="btn btn-sm" onclick="showCoachJournal()" style="background:var(--grn);color:#fff;border:none;font-size:10px;padding:3px 10px;border-radius:4px;cursor:pointer">✅ Journal</button>';
+ } else {
+  h += '<button class="btn btn-sm" onclick="showCoachJournal()" style="background:#e74c3c;color:#fff;border:none;font-size:10px;padding:3px 10px;border-radius:4px;cursor:pointer;animation:cjPulse 2s infinite">🔴 Enter Journal</button>';
+ }
  h += '<button class="btn btn-sm '+(crmView==='queue'?'btn-pri':'btn-outline')+'" onclick="crmView=\'queue\';renderCRM()">Call Queue</button>';
  h += '<button class="btn btn-sm '+(crmView==='all'?'btn-pri':'btn-outline')+'" onclick="crmView=\'all\';renderCRM()">All Leads</button>';
  h += '<button class="btn btn-sm '+(crmView==='bulk'?'btn-amb':'btn-outline')+'" onclick="crmView=\'bulk\';renderCRM()">+ Bulk Add</button>';
