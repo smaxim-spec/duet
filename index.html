@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.11.1';
+var APP_VERSION = 'v1.11.2';
 var APP_BUILD_DATE = '2026-04-16';
 var CHANGELOG = [
+ {ver:'v1.11.2', date:'2026-04-16', notes:[
+  'Calley push is now priority-sorted: fresh (0-call) leads go to the TOP of Calley, 3+ attempt leads to the BOTTOM',
+  'Tie-breaker: newer leads first within same call count — so hot Salesforce leads get priority',
+  'Push toast now shows the breakdown (e.g. "45 fresh, 22 @1call, 18 @2calls, 12 @3+calls") so you can see sorting worked'
+ ]},
  {ver:'v1.11.1', date:'2026-04-16', notes:[
   'Coach Journal now syncs across devices via Firebase (was localStorage-only, causing phantom "days missed" on other devices)',
   'Journal entries merge by date+text — no duplicates across laptop & phone',
@@ -1223,11 +1228,38 @@ function calleyPushFiltered(){
  if(!filterEl) return;
  var pushLeads = JSON.parse(filterEl.dataset.leads || '[]');
  if(pushLeads.length === 0){ showToast('No leads to push', 3000); return; }
+
+ // Sort by: (1) call count ASC (fewest calls first) then (2) created DESC (newest first) as tie-breaker.
+ // Result in Calley: 0-call newest leads at top → 3+ call oldest leads at bottom.
+ // So if Steve only gets through 100 calls, he's hitting fresh leads, not the same heavy-touch ones again.
+ pushLeads.sort(function(aId, bId){
+  var a = leads.find(function(l){return l.id === aId}) || {};
+  var b = leads.find(function(l){return l.id === bId}) || {};
+  var aCalls = (a.callLog || []).length;
+  var bCalls = (b.callLog || []).length;
+  if(aCalls !== bCalls) return aCalls - bCalls; // fewer calls first
+  // Tie-breaker: newer leads first (2b)
+  var aCreated = a.created || '';
+  var bCreated = b.created || '';
+  return bCreated.localeCompare(aCreated);
+ });
+
  var listId = localStorage.getItem('calley_list_id') || CALLEY_DEFAULT_LIST_ID;
  var pushed = 0;
  var failed = 0;
  var total = pushLeads.length;
- showToast('📱 Pushing ' + total + ' leads to Calley...', 5000);
+ // Show breakdown so user sees priority ordering worked
+ var zeroCount = 0, oneCount = 0, twoCount = 0, threePlusCount = 0;
+ pushLeads.forEach(function(id){
+  var l = leads.find(function(x){return x.id === id});
+  if(!l) return;
+  var c = (l.callLog || []).length;
+  if(c === 0) zeroCount++;
+  else if(c === 1) oneCount++;
+  else if(c === 2) twoCount++;
+  else threePlusCount++;
+ });
+ showToast('📱 Pushing ' + total + ' leads to Calley (sorted: ' + zeroCount + ' fresh, ' + oneCount + ' @1call, ' + twoCount + ' @2calls, ' + threePlusCount + ' @3+calls)', 6000);
 
  function pushNext(idx){
   if(idx >= pushLeads.length){
