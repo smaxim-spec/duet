@@ -173,6 +173,7 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 .fb-status-wontdo{background:#fce4ec;color:#c62828}
 .dial-prompt{position:fixed;top:0;left:0;right:0;background:var(--dgrn);color:#fff;padding:12px 20px;z-index:9999;display:flex;align-items:center;justify-content:center;gap:12px;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.25);animation:slideDown .25s}
 @keyframes slideDown{from{transform:translateY(-100%)}to{transform:translateY(0)}}
+@keyframes cjPulse{0%,100%{box-shadow:0 0 0 0 rgba(231,76,60,0.4)}50%{box-shadow:0 0 12px 4px rgba(231,76,60,0.3)}}
 .dial-prompt button{padding:6px 16px;border-radius:6px;border:none;font-size:13px;font-weight:700;cursor:pointer}
 .dial-prompt .dial-yes{background:#fff;color:var(--dgrn)}
 .dial-prompt .dial-no{background:rgba(255,255,255,.2);color:#fff}
@@ -792,7 +793,49 @@ var products = [
  {name:'AAA Membership',cat:'Banking / CD / Other',rate:0,basis:'flat fee',pct:false,flat:true}
 ];
 
-function findProd(n){ return products.find(function(p){return p.name===n}) || products[0]; }
+function findProd(n){
+ if(!n) return products[0];
+ // Exact match first
+ var exact = products.find(function(p){return p.name===n});
+ if(exact) return exact;
+ // Fuzzy match: check if either name contains the other, or share a meaningful keyword
+ var nl = n.toLowerCase();
+ var fuzzy = products.find(function(p){
+  var pl = p.name.toLowerCase();
+  return pl.indexOf(nl) >= 0 || nl.indexOf(pl) >= 0;
+ });
+ if(fuzzy) return fuzzy;
+ // Match by product code in parentheses — e.g., "Platinum Annuity 5 (PL5NQ)" matches "Platinum Annuity 5 External (ages 0-79)"
+ var baseWords = nl.replace(/\s*\(.*\)\s*/g,'').trim().split(/\s+/);
+ if(baseWords.length >= 2){
+  fuzzy = products.find(function(p){
+   var pl = p.name.toLowerCase();
+   return baseWords.every(function(w){ return pl.indexOf(w) >= 0; });
+  });
+  if(fuzzy) return fuzzy;
+ }
+ // Special known mappings for DuetBooks product names
+ var mappings = {
+  'ordinary life': 'Whole Life (W21GN / RWL21)',
+  'certificate of deposit': 'Certificate of Deposit (CD)',
+  'bonus annuity': 'Platinum Bonus 5 (AAA Life)',
+  '10 & 15 yr term': '15-Year Term',
+  '20 yr tlc term': '20-Year Term',
+  '25 & 30 yr term': '30-Year Term',
+  '7 yr guaranteed annuity': 'Elite3 Guarantee External',
+  'landmark 5': 'MM Landmark 5 External (ages 0-75)',
+  'american legend 7': 'MM American Legend 7 External (ages 0-75)',
+  'securian eclipse': 'Securian Eclipse UL (brokered)'
+ };
+ var keys = Object.keys(mappings);
+ for(var i=0;i<keys.length;i++){
+  if(nl.indexOf(keys[i]) >= 0){
+   var mapped = products.find(function(p){return p.name === mappings[keys[i]]});
+   if(mapped) return mapped;
+  }
+ }
+ return products[0];
+}
 
 // ── 2025 ACTUAL DATA (from Varicent statements) ──
 function demoPipeline(){ return []; }
@@ -1002,7 +1045,7 @@ function toYMD(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,
 
 // ── CALLEY INTEGRATION ──
 var CALLEY_PROXY = '/calley-proxy'; // routes through duet_server.py proxy
-var CALLEY_DEFAULT_LIST_ID = 'mcl-5459A370-35FE-4176-AA44-0BBE6E879340'; // "Duet 3" list (general/default)
+var CALLEY_DEFAULT_LIST_ID = 'mcl-E819773E-8420-476D-83B5-6832C1E8C801'; // "New Leads" — single working list
 // Stage-based Calley lists — export uses the matching list name in filename
 var CALLEY_STAGE_LISTS = {
  'quoted':    { id: 'mcl-400C638F-1A00-470C-9A72-EDC23CD34B97', name: 'Quoted Nurturing' },
@@ -1169,6 +1212,45 @@ function calleyPushFiltered(){
   });
  }
  pushNext(0);
+}
+
+function calleyResetAndPush(){
+ // Determine which stages to reset based on current filter
+ var filterStage = crmQueueFilter;
+ var stageMap = {
+  'new':'new', 'attempting':'attempting', 'connected':'connected',
+  'discovery':'discovery', 'incubator':'incubator', 'meeting':'meeting_set',
+  'quoted':'quoted', 'app_submitted':'app_submitted',
+  'call_today':'call_today', 'need_morning':'need_morning',
+  'need_afternoon':'need_afternoon', 'need_evening':'need_evening'
+ };
+ var targetStage = stageMap[filterStage] || null; // null = all stages
+ var filterName = filterStage === 'all' ? 'ALL active' : filterStage === 'call_today' ? 'Call Today' : filterStage === 'need_morning' ? 'Morning' : filterStage === 'need_afternoon' ? 'Afternoon' : filterStage === 'need_evening' ? 'Evening' : filterStage.charAt(0).toUpperCase() + filterStage.slice(1);
+
+ if(!confirm('Reset & re-push ' + filterName + ' leads to Calley?\n\n(Clear the Calley list first in the web panel for a clean start)')) return;
+
+ // Reset calleyPushed flags only for leads matching current filter
+ var resetCount = 0;
+ leads.forEach(function(l){
+  if(l.stage === 'won' || l.stage === 'lost') return;
+  // If filtered to a specific stage, only reset that stage
+  if(targetStage && l.stage !== targetStage) return;
+  var cl = l.callLog || [];
+  var lastOutcome = cl.length > 0 ? (cl[cl.length-1].outcome || '') : '';
+  if(lastOutcome === 'Bad #' || lastOutcome === 'Bad Number' || lastOutcome === 'Wrong Number') return;
+  var ph = (l.phone||'').replace(/\D/g,'');
+  if(!ph || ph.length < 10) return;
+  if(l.calleyPushed){
+   l.calleyPushed = false;
+   l.calleyPushedDate = null;
+   resetCount++;
+  }
+ });
+ saveLeads();
+ showToast('🔄 Reset ' + resetCount + ' ' + filterName + ' leads — now re-pushing...', 3000);
+ // Re-render to pick up new counts, then auto-push
+ renderCRM();
+ setTimeout(function(){ calleyPushFiltered(); }, 1000);
 }
 
 function calleyExportCSV(){
@@ -1369,33 +1451,29 @@ function fmtInt(n){ return '$' + Number(n).toLocaleString('en-US',{minimumFracti
 function pv(id){ return parseFloat(document.getElementById(id)?.value) || 0; }
 
 function calcCase(c){
+ // If case has a Varicent-imported commission, use it directly (matches DuetBooks logic)
+ if(c.actualCommission){
+  return {origGross:c.actualCommission, steveShare:c.actualCommission, partnerGets:0, fullComm:c.actualCommission};
+ }
+
  var p = findProd(c.product);
  var origGross, steveShare, partnerGets, fullComm;
- if(p.flat){
-  // Flat fee: amount IS the commission
-  origGross = c.amount;
-  if(c.split === 'split'){
-   steveShare = c.amount; // Varicent already paid you this (your 80%)
-   fullComm = c.amount / (settings.yourShare/100); // reverse to get full commission
-   partnerGets = fullComm * (settings.partnerShare/100);
-  } else {
-   steveShare = c.amount;
-   fullComm = c.amount;
-   partnerGets = 0;
-  }
- } else {
-  // Amount × Rate = your commission (already your 80% share for splits)
-  origGross = c.amount * (c.rate / 100);
-  if(c.split === 'split'){
-   steveShare = origGross; // this IS your 80% — Varicent already split it
-   fullComm = origGross / (settings.yourShare/100); // full commission before split
-   partnerGets = fullComm * (settings.partnerShare/100);
-  } else {
-   steveShare = origGross;
-   fullComm = origGross;
-   partnerGets = 0;
-  }
+
+ // Calculate full commission before any split
+ fullComm = p.flat ? c.amount : c.amount * (c.rate / 100);
+ origGross = fullComm;
+
+ // Determine split percentages: 'life' = 50/50, 'pc'/'split' = 80/20, 'full' = 100%
+ var yourPct = 100, partnerPct = 0;
+ if(c.split === 'life'){
+  yourPct = 50; partnerPct = 50;
+ } else if(c.split === 'pc' || c.split === 'split'){
+  yourPct = settings.yourShare || 80;
+  partnerPct = settings.partnerShare || 20;
  }
+ steveShare = fullComm * (yourPct/100);
+ partnerGets = fullComm * (partnerPct/100);
+
  return {origGross:origGross, steveShare:steveShare, partnerGets:partnerGets, fullComm:fullComm};
 }
 
@@ -1404,6 +1482,12 @@ function calcYtdNet(periods){
  return periods.reduce(function(s,p){
   var extraNet = (p.extraDeposits||[]).reduce(function(es,e){return es+(e.net||0)},0);
   return s + (p.net||0) + extraNet;
+ },0);
+}
+function calcYtdGross(periods){
+ return periods.reduce(function(s,p){
+  var extraGross = (p.extraDeposits||[]).reduce(function(es,e){return es+(e.gross||0)},0);
+  return s + (p.gross||0) + extraGross;
  },0);
 }
 
@@ -1495,7 +1579,7 @@ function renderWalkthrough(){
  var banking = pl.filter(function(c){return c.product.indexOf('CD')>=0 || c.product.indexOf('Membership')>=0 || c.product.indexOf('Credit')>=0}).length;
 
  // Base pay calculation: gross minus varicent bonus minus banking incentive
- var ytdGross = pe.reduce(function(s,p){return s+p.gross},0);
+ var ytdGross = calcYtdGross(pe);
  var ytdNet = calcYtdNet(pe);
  var ytdBasePay = pe.reduce(function(s,p){return s + Math.max(0, p.gross - p.varicent - p.banking)},0);
  // Split agent totals
@@ -1635,7 +1719,7 @@ function renderDash(){
 
  var ytdNet = calcYtdNet(pe);
  var ytdVaricent = pe.reduce(function(s,p){return s+p.varicent},0);
- var ytdGross = pe.reduce(function(s,p){return s+p.gross},0);
+ var ytdGross = calcYtdGross(pe);
  var latestMma = pe.length ? pe[pe.length-1].mma : 0;
  var openCases = pl.filter(function(c){return c.status!=='paid'}).length;
  var openComm = pl.filter(function(c){return c.status!=='paid'}).reduce(function(s,c){return s+calcCase(c).steveShare},0);
@@ -1767,7 +1851,7 @@ function renderDash(){
  compPe.forEach(function(p){ compMonths[p.month] += p.varicent; });
  var compYtdVaricent = compPe.reduce(function(s,p){return s+p.varicent},0);
  var compYtdNet = compPe.reduce(function(s,p){return s+p.net},0);
- var compYtdGross = compPe.reduce(function(s,p){return s+p.gross},0);
+ var compYtdGross = calcYtdGross(compPe);
  var compCases = compPl.length;
 
  h += '<div class="card"><h3 style="color:var(--pri)">Year-over-Year: '+activeYear+' vs '+compYear+'</h3>';
@@ -3976,8 +4060,8 @@ function convertToPipeline(lead){
  var splitType = lead.agent && lead.agent !== 'Steve' ? 'split' : 'full';
  var yourShare = splitType === 'split' ? origGross * (settings.yourShare/100) : origGross;
  var partnerShare = splitType === 'split' ? origGross * (settings.partnerShare/100) : 0;
- pl.push({
-  id: nextId++,
+ var caseObj = {
+  id: Date.now(), // use timestamp ID to avoid collisions with DuetBooks
   client: lead.name,
   phone: lead.phone || '',
   product: prodName,
@@ -3994,13 +4078,44 @@ function convertToPipeline(lead){
   submitted: new Date().toISOString().substring(0,10),
   estPay: '',
   paidIn: '',
-  notes: 'From CRM lead #' + lead.id
- });
+  notes: 'From CRM lead #' + lead.id,
+  year: new Date().getFullYear(),
+  created: new Date().toISOString()
+ };
+ pl.push(caseObj);
  // Save to localStorage for immediate dashboard update
  try { localStorage.setItem('salestracker_pl_2026', JSON.stringify(pl2026)); } catch(e){}
- // Push to Firebase (DuetBooks is the source of truth)
+ // Push to pipeline_2026 Firebase path
  debouncedFirebaseSync('pipeline_2026');
- showToast(lead.name + ' converted to pipeline case — syncing to DuetBooks!', 4000);
+ // ALSO push to duetbooks/steve_maxim/cases (this is the path DuetBooks actually reads)
+ fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
+  .then(function(r){ return r.json(); })
+  .then(function(booksCases){
+   var arr = booksCases || [];
+   if(arr && !Array.isArray(arr) && arr.data && Array.isArray(arr.data)) arr = arr.data;
+   if(!Array.isArray(arr)) arr = Object.values(arr);
+   // Dedupe by client + product so repeated conversions don't double-add
+   var exists = arr.some(function(x){
+    return x && x.client === caseObj.client && x.product === caseObj.product && x.status !== 'paid';
+   });
+   if(!exists) arr.push(caseObj);
+   return fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(arr)
+   });
+  })
+  .then(function(r){
+   if(r && r.ok){
+    showToast('✅ ' + lead.name + ' pushed to DuetBooks & pipeline', 4000);
+   } else {
+    showToast('⚠️ ' + lead.name + ' in pipeline but DuetBooks sync failed — verify in DuetBooks', 5000);
+   }
+  })
+  .catch(function(e){
+   console.log('DuetBooks push error for ' + lead.name + ':', e);
+   showToast('⚠️ ' + lead.name + ' in pipeline but DuetBooks sync failed', 5000);
+  });
 }
 
 function scheduleAppt(leadId){
@@ -4105,36 +4220,371 @@ function saveNeedsAnalysis(leadId){
  renderCRM();
 }
 
+// ── CREATE CASE MODAL ──
+// DuetBooks products grouped by category for the dropdown
+var BOOKS_PRODUCTS = [
+ {cat:'Life (Whole / Term)', items:[
+  {name:'Whole Life (W21GN / RWL21)',rate:75,split:'life'},
+  {name:'Whole Life (SIWL) Conversion',rate:40,split:'life'},
+  {name:'Guaranteed Issue Whole Life (GIWL)',rate:50,split:'life'},
+  {name:'Life Paid Up at 65 (conversion)',rate:90,split:'life'},
+  {name:'10-Year Term',rate:75,split:'life'},
+  {name:'15-Year Term',rate:75,split:'life'},
+  {name:'20-Year Term',rate:80,split:'life'},
+  {name:'30-Year Term',rate:100,split:'life'}
+ ]},
+ {cat:'IUL / Universal Life', items:[
+  {name:'AAA Accumulator - Target Premium',rate:105,split:'life'},
+  {name:'AAA Accumulator - Excess Premium',rate:3.5,split:'life'},
+  {name:'AAA LifeTime UL - Target (age 79-)',rate:105,split:'life'},
+  {name:'AAA LifeTime UL - Target (age 80+)',rate:100,split:'life'},
+  {name:'Securian Eclipse UL (target/planned)',rate:70,split:'life'}
+ ]},
+ {cat:'Annuities', items:[
+  {name:'Platinum Annuity 5 External (ages 0-79)',rate:2.85,split:'pc'},
+  {name:'Platinum Annuity 5 External (ages 80-85)',rate:2.75,split:'pc'},
+  {name:'Platinum Annuity 5 Internal (ages 0-79)',rate:1.85,split:'pc'},
+  {name:'Elite3 Guarantee External',rate:1.25,split:'pc'},
+  {name:'Elite3 Guarantee Internal',rate:0.20,split:'pc'},
+  {name:'GIA External Funds (ages 0-79)',rate:2.80,split:'pc'},
+  {name:'GIA Internal Funds (ages 0-79)',rate:1.80,split:'pc'},
+  {name:'American Legend 7 External (ages 0-75)',rate:2.85,split:'pc'},
+  {name:'American Legend 7 External (ages 76+)',rate:2.75,split:'pc'},
+  {name:'Safe Return External (ages 0-75)',rate:2.85,split:'pc'},
+  {name:'Landmark 3 External (ages 0-75)',rate:2.75,split:'pc'},
+  {name:'Landmark 5 External (ages 0-75)',rate:2.85,split:'pc'},
+  {name:'Premier Bonus External (ages 0-75)',rate:2.85,split:'pc'},
+  {name:'Premier Income Bonus External (ages 0-75)',rate:2.85,split:'pc'}
+ ]},
+ {cat:'Banking / CD / Other', items:[
+  {name:'Certificate of Deposit (CD)',rate:0.05,split:'pc'},
+  {name:'Credit Card',rate:0,split:'full',flat:true},
+  {name:'AAA Membership',rate:0,split:'full',flat:true}
+ ]}
+];
+
+function findBooksProduct(name){
+ for(var g=0;g<BOOKS_PRODUCTS.length;g++){
+  for(var i=0;i<BOOKS_PRODUCTS[g].items.length;i++){
+   if(BOOKS_PRODUCTS[g].items[i].name === name) return BOOKS_PRODUCTS[g].items[i];
+  }
+ }
+ return null;
+}
+
+function showCreateCaseModal(leadId){
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead) return;
+
+ // Remove existing modal if any
+ var old = document.getElementById('createCaseModal');
+ if(old) old.remove();
+
+ var overlay = document.createElement('div');
+ overlay.id = 'createCaseModal';
+ overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+ overlay.onclick = function(e){ if(e.target === overlay) overlay.remove(); };
+
+ var m = '<div style="background:var(--bg);border-radius:12px;padding:20px;width:90%;max-width:500px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">';
+ m += '<h3 style="margin:0 0 4px 0;color:var(--grn)">Create Case for DuetBooks</h3>';
+ m += '<p style="margin:0 0 14px 0;font-size:12px;color:var(--muted)">This will push directly to DuetBooks as a new pipeline case.</p>';
+
+ // Client (locked)
+ m += '<div style="margin-bottom:10px">';
+ m += '<label style="font-size:11px;font-weight:600;color:var(--muted)">Client</label>';
+ m += '<div style="font-size:14px;font-weight:700">'+lead.name+' &nbsp;<span style="font-size:11px;color:var(--muted)">'+lead.phone+'</span></div>';
+ m += '</div>';
+
+ // Product dropdown (grouped)
+ m += '<div style="margin-bottom:10px">';
+ m += '<label style="font-size:11px;font-weight:600;color:var(--muted)">Product *</label>';
+ m += '<select id="ccm_product" onchange="ccmProductChanged()" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">';
+ m += '<option value="">— Select Product —</option>';
+ BOOKS_PRODUCTS.forEach(function(g){
+  m += '<optgroup label="'+g.cat+'">';
+  g.items.forEach(function(p){ m += '<option value="'+p.name+'">'+p.name+'</option>'; });
+  m += '</optgroup>';
+ });
+ m += '</select></div>';
+
+ // Amount + Rate (side by side)
+ m += '<div style="display:flex;gap:10px;margin-bottom:10px">';
+ m += '<div style="flex:1"><label style="font-size:11px;font-weight:600;color:var(--muted)">Amount / Premium *</label>';
+ m += '<input id="ccm_amount" type="number" step="0.01" placeholder="e.g. 50000" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)"></div>';
+ m += '<div style="width:80px"><label style="font-size:11px;font-weight:600;color:var(--muted)">Rate %</label>';
+ m += '<input id="ccm_rate" type="number" step="0.01" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)"></div>';
+ m += '</div>';
+
+ // Split type + Agent
+ m += '<div style="display:flex;gap:10px;margin-bottom:10px">';
+ m += '<div style="flex:1"><label style="font-size:11px;font-weight:600;color:var(--muted)">Split Type</label>';
+ m += '<select id="ccm_split" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">';
+ m += '<option value="full">Full (100%)</option>';
+ m += '<option value="life">Life Split (50/50)</option>';
+ m += '<option value="pc">P&C Split (80/20)</option>';
+ m += '</select></div>';
+ m += '<div style="flex:1"><label style="font-size:11px;font-weight:600;color:var(--muted)">Split Agent</label>';
+ m += '<select id="ccm_agent" onchange="ccmAgentChanged()" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">';
+ m += '<option value="">None (Full Commission)</option>';
+ splitAgents.forEach(function(a){ m += '<option value="'+a.name+'"'+(lead.agent===a.name?' selected':'')+'>'+a.name+'</option>'; });
+ m += '</select></div></div>';
+
+ // Status
+ m += '<div style="margin-bottom:10px">';
+ m += '<label style="font-size:11px;font-weight:600;color:var(--muted)">Status</label>';
+ m += '<select id="ccm_status" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">';
+ m += '<option value="submitted" selected>Submitted</option>';
+ m += '<option value="pending">Pending</option>';
+ m += '<option value="approved">Approved</option>';
+ m += '<option value="issued">Issued</option>';
+ m += '</select></div>';
+
+ // Notes
+ m += '<div style="margin-bottom:14px">';
+ m += '<label style="font-size:11px;font-weight:600;color:var(--muted)">Notes</label>';
+ m += '<input id="ccm_notes" type="text" placeholder="Optional notes" value="From CRM lead #'+lead.id+'" style="width:100%;padding:6px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)"></div>';
+
+ // Commission preview
+ m += '<div id="ccm_preview" style="margin-bottom:14px;padding:8px 12px;background:var(--ptint);border-radius:8px;font-size:12px;color:var(--muted)">Select a product and enter amount to see commission preview</div>';
+
+ // Buttons
+ m += '<div style="display:flex;gap:10px;justify-content:flex-end">';
+ m += '<button onclick="document.getElementById(\'createCaseModal\').remove()" style="padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px">Cancel</button>';
+ m += '<button onclick="submitCreateCaseModal('+lead.id+')" style="padding:8px 20px;border-radius:6px;border:none;background:var(--grn);color:#fff;cursor:pointer;font-size:13px;font-weight:700">Create Case</button>';
+ m += '</div></div>';
+
+ overlay.innerHTML = m;
+ document.body.appendChild(overlay);
+
+ // Pre-fill if agent is set
+ if(lead.agent) ccmAgentChanged();
+}
+
+function ccmProductChanged(){
+ var name = $1('#ccm_product').value;
+ var bp = findBooksProduct(name);
+ if(bp){
+  $1('#ccm_rate').value = bp.rate;
+  // Auto-set split type based on product category
+  var agent = $1('#ccm_agent').value;
+  if(agent){
+   $1('#ccm_split').value = bp.split || 'pc';
+  } else {
+   $1('#ccm_split').value = 'full';
+  }
+ }
+ ccmUpdatePreview();
+}
+
+function ccmAgentChanged(){
+ var agent = $1('#ccm_agent').value;
+ if(!agent){
+  $1('#ccm_split').value = 'full';
+ } else {
+  // Set split based on currently selected product
+  var name = $1('#ccm_product').value;
+  var bp = findBooksProduct(name);
+  $1('#ccm_split').value = bp ? (bp.split || 'pc') : 'pc';
+ }
+ ccmUpdatePreview();
+}
+
+function ccmUpdatePreview(){
+ var product = $1('#ccm_product').value;
+ var amount = parseFloat($1('#ccm_amount').value) || 0;
+ var rate = parseFloat($1('#ccm_rate').value) || 0;
+ var split = $1('#ccm_split').value;
+ var el = $1('#ccm_preview');
+ if(!product || !amount){ el.innerHTML = 'Select a product and enter amount to see commission preview'; return; }
+
+ var bp = findBooksProduct(product);
+ var commission = bp && bp.flat ? amount : amount * (rate / 100);
+ var yourPct = split === 'life' ? 50 : split === 'pc' ? 80 : 100;
+ var yourShare = commission * (yourPct / 100);
+
+ el.innerHTML = '<b>Commission Preview:</b> ' + fmt(commission) + ' full' +
+  (split !== 'full' ? ' → <b>' + fmt(yourShare) + '</b> your ' + yourPct + '% share' : ' → <b>' + fmt(commission) + '</b> (full, no split)');
+ el.style.background = 'var(--gtint)';
+ el.style.color = 'var(--grn)';
+}
+
+// Listen for amount changes to update preview
+document.addEventListener('input', function(e){ if(e.target.id === 'ccm_amount' || e.target.id === 'ccm_rate') ccmUpdatePreview(); });
+
+function submitCreateCaseModal(leadId){
+ var product = $1('#ccm_product').value;
+ var amount = parseFloat($1('#ccm_amount').value) || 0;
+ var rate = parseFloat($1('#ccm_rate').value) || 0;
+ var split = $1('#ccm_split').value;
+ var agent = $1('#ccm_agent').value;
+ var status = $1('#ccm_status').value;
+ var notes = $1('#ccm_notes').value.trim();
+
+ if(!product){ showToast('Please select a product', 3000); return; }
+ if(!amount){ showToast('Please enter an amount', 3000); return; }
+
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead) return;
+
+ // Find the agent's email
+ var agentEmail = '';
+ if(agent){
+  var ag = splitAgents.find(function(a){return a.name === agent});
+  if(ag) agentEmail = ag.email || '';
+ }
+
+ var c = {
+  id: Date.now(),
+  client: lead.name,
+  phone: lead.phone || '',
+  product: product,
+  amount: amount,
+  rate: rate,
+  split: agent ? split : 'full',
+  splitName: agent || '',
+  splitEmail: agentEmail,
+  status: status,
+  submitted: new Date().toISOString().substring(0,10),
+  estPay: '',
+  paidDate: '',
+  notes: notes,
+  year: new Date().getFullYear(),
+  created: new Date().toISOString()
+ };
+
+ // Push to DuetBooks Firebase
+ fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
+  .then(function(r){ return r.json(); })
+  .then(function(booksCases){
+   var arr = booksCases || [];
+   if(!Array.isArray(arr)) arr = Object.values(arr);
+   arr.push(c);
+   return fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(arr)
+   });
+  })
+  .then(function(r){
+   if(r.ok){
+    showToast('Case created for '+lead.name+' and pushed to DuetBooks!', 5000);
+   } else {
+    showToast('Case created locally but DuetBooks sync failed', 5000);
+   }
+  })
+  .catch(function(e){
+   console.log('DuetBooks push error:', e);
+   showToast('Case created locally but DuetBooks sync failed', 5000);
+  });
+
+ // Also add to local CRM pipeline
+ pl.push(c);
+ try { localStorage.setItem('salestracker_pl_2026', JSON.stringify(pl2026)); } catch(e){}
+ lead.stage = 'won';
+ saveLeads();
+
+ // Close modal
+ var modal = document.getElementById('createCaseModal');
+ if(modal) modal.remove();
+ renderCRM();
+}
+
+// Map CRM product names → DuetBooks product names
+var CRM_TO_BOOKS_PRODUCT = {
+ 'AAA Accumulator IUL': 'AAA Accumulator - Target Premium',
+ 'AAA LifeTime UL (age 79 and under)': 'AAA LifeTime UL - Target (age 79-)',
+ 'AAA LifeTime UL (age 80+)': 'AAA LifeTime UL - Target (age 80+)',
+ 'Securian Eclipse UL (brokered)': 'Securian Eclipse UL (target/planned)',
+ 'Platinum Annuity 5 External (ages 0-79)': 'Platinum Annuity 5 External (ages 0-79)',
+ 'Platinum Annuity 5 Internal (ages 0-79)': 'Platinum Annuity 5 Internal (ages 0-79)',
+ 'Elite3 Guarantee External': 'Elite3 Guarantee External',
+ 'MM GIA External Funds (ages 0-79)': 'GIA External Funds (ages 0-79)',
+ 'MM GIA Internal Funds (ages 0-79)': 'GIA Internal Funds (ages 0-79)',
+ 'MM American Legend 7 External (ages 0-75)': 'American Legend 7 External (ages 0-75)',
+ 'MM Safe Return External (ages 0-75)': 'Safe Return External (ages 0-75)',
+ 'MM Landmark 3 External (ages 0-75)': 'Landmark 3 External (ages 0-75)',
+ 'MM Landmark 5 External (ages 0-75)': 'Landmark 5 External (ages 0-75)',
+ 'MM Premier Bonus External (ages 0-75)': 'Premier Bonus External (ages 0-75)',
+ 'MM Premier Income Bonus External (ages 0-75)': 'Premier Income Bonus External (ages 0-75)',
+ 'Platinum Bonus 5 (AAA Life)': 'Platinum Annuity 5 External (ages 0-79)',
+ 'Whole Life (W21GN / RWL21)': 'Whole Life (W21GN / RWL21)',
+ 'Guaranteed Issue Whole Life (GIWL)': 'Guaranteed Issue Whole Life (GIWL)',
+ 'Life Paid Up at 65 (conversion)': 'Life Paid Up at 65 (conversion)',
+ '10-Year Term': '10-Year Term',
+ '15-Year Term': '15-Year Term',
+ '20-Year Term': '20-Year Term',
+ '30-Year Term': '30-Year Term',
+ 'Certificate of Deposit (CD)': 'Certificate of Deposit (CD)',
+ 'Credit Card': 'Credit Card',
+ 'AAA Membership': 'AAA Membership'
+};
+
 function createCaseFromLead(leadId){
  var lead = leads.find(function(l){return l.id === leadId});
  if(!lead) return;
  // Find product match from interest
  var prod = products.find(function(p){return p.name === lead.interest}) || products[0];
  var amt = parseFloat(lead.estPremium) || 0;
+ var booksProduct = CRM_TO_BOOKS_PRODUCT[prod.name] || prod.name;
+
+ // Determine split type: life products use 'life' (50/50), P&C/other splits use 'pc' (80/20)
+ var splitType = 'full';
+ if(lead.agent){
+  var cat = (prod.cat || '').toLowerCase();
+  splitType = (cat.indexOf('life') >= 0 || cat.indexOf('iul') >= 0 || cat.indexOf('universal') >= 0) ? 'life' : 'pc';
+ }
+
+ // Build DuetBooks-compatible case object
  var c = {
-  id: nextId++,
+  id: Date.now(),  // unique ID that won't collide with DuetBooks' nextCaseId
   client: lead.name,
   phone: lead.phone || '',
-  product: prod.name,
+  product: booksProduct,
   amount: amt,
   rate: prod.rate,
-  split: lead.agent ? 'split' : 'full',
+  split: splitType,
   splitName: lead.agent || '',
   splitEmail: '',
   status: 'submitted',
   submitted: new Date().toISOString().substring(0,10),
   estPay: '',
-  paidIn: '',
-  notes: 'From CRM lead #'+lead.id
+  paidDate: '',
+  notes: 'From CRM lead #'+lead.id,
+  year: new Date().getFullYear(),
+  created: new Date().toISOString()
  };
+
+ // Push to DuetBooks Firebase (source of truth)
+ fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
+  .then(function(r){ return r.json(); })
+  .then(function(booksCases){
+   var arr = booksCases || [];
+   if(!Array.isArray(arr)) arr = Object.values(arr);
+   arr.push(c);
+   return fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(arr)
+   });
+  })
+  .then(function(r){
+   if(r.ok){
+    showToast('✅ Case pushed to DuetBooks for '+lead.name, 5000);
+    // DuetBooks cross-sync will push it back to pipeline_2026 on next load
+   } else {
+    showToast('⚠️ Case created locally but DuetBooks sync failed — open DuetBooks to verify', 5000);
+   }
+  })
+  .catch(function(e){
+   console.log('DuetBooks push error:', e);
+   showToast('⚠️ Case created locally but DuetBooks sync failed', 5000);
+  });
+
+ // Also add to local CRM pipeline for immediate dashboard update
  pl.push(c);
- // Save to localStorage for immediate dashboard update
  try { localStorage.setItem('salestracker_pl_2026', JSON.stringify(pl2026)); } catch(e){}
- // Push to Firebase (DuetBooks is the source of truth)
- debouncedFirebaseSync('pipeline_2026');
  lead.stage = 'won';
  saveLeads();
- showToast('Case created for '+lead.name+' — syncing to DuetBooks!', 5000);
  renderCRM();
 }
 
@@ -5648,7 +6098,17 @@ function renderCRM(){
  // Header with view toggles
  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">';
  h += '<h2 style="color:var(--pri);margin:0">My CRM</h2>';
- h += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
+ h += '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">';
+ // Coach Journal button in nav bar
+ var _cjE = getCoachJournal();
+ var _cjNow = new Date();
+ var _cjToday = _cjNow.getFullYear()+'-'+String(_cjNow.getMonth()+1).padStart(2,'0')+'-'+String(_cjNow.getDate()).padStart(2,'0');
+ var _cjDone = _cjE.some(function(e){ return e.date && e.date.substring(0,10) === _cjToday; });
+ if(_cjDone){
+  h += '<button class="btn btn-sm" onclick="showCoachJournal()" style="background:var(--grn);color:#fff;border:none;font-size:10px;padding:3px 10px;border-radius:4px;cursor:pointer">✅ Journal</button>';
+ } else {
+  h += '<button class="btn btn-sm" onclick="showCoachJournal()" style="background:#e74c3c;color:#fff;border:none;font-size:10px;padding:3px 10px;border-radius:4px;cursor:pointer;animation:cjPulse 2s infinite">🔴 Enter Journal</button>';
+ }
  h += '<button class="btn btn-sm '+(crmView==='queue'?'btn-pri':'btn-outline')+'" onclick="crmView=\'queue\';renderCRM()">Call Queue</button>';
  h += '<button class="btn btn-sm '+(crmView==='all'?'btn-pri':'btn-outline')+'" onclick="crmView=\'all\';renderCRM()">All Leads</button>';
  h += '<button class="btn btn-sm '+(crmView==='bulk'?'btn-amb':'btn-outline')+'" onclick="crmView=\'bulk\';renderCRM()">+ Bulk Add</button>';
@@ -5832,13 +6292,42 @@ function renderCallQueue(){
  h += '<div style="text-align:right"><div style="font-size:24px;font-weight:800;color:var(--pri)">'+bfTotalActions+'</div><div style="font-size:9px;color:var(--muted)">action items</div></div>';
  h += '</div>';
 
+ // Coach Journal status — green if entered today, red if not (stays red until entry is made)
+ var cjEntries = getCoachJournal();
+ var cjTodayEntry = cjEntries.find(function(e){ return e.date && e.date.substring(0,10) === todayISO; });
+ var cjIsDone = !!cjTodayEntry;
+ // Check if yesterday (or any recent day) was missed — stays red until today's entry exists
+ var cjIsOverdue = !cjIsDone;
+ // Count consecutive missed days for urgency
+ var cjMissedDays = 0;
+ if(!cjIsDone){
+  for(var di=1; di<=7; di++){
+   var checkDate = new Date(now); checkDate.setDate(checkDate.getDate()-di);
+   var checkISO = checkDate.getFullYear()+'-'+String(checkDate.getMonth()+1).padStart(2,'0')+'-'+String(checkDate.getDate()).padStart(2,'0');
+   var checkDay = checkDate.getDay();
+   if(checkDay === 0 || checkDay === 6) continue; // skip weekends
+   var found = cjEntries.find(function(e){ return e.date && e.date.substring(0,10) === checkISO; });
+   if(!found) cjMissedDays++;
+   else break;
+  }
+ }
+ var cjColor = cjIsDone ? 'var(--grn)' : '#e74c3c';
+ var cjBg = cjIsDone ? 'rgba(39,174,96,0.08)' : 'rgba(231,76,60,0.1)';
+ var cjBorder = cjIsDone ? 'var(--grn)' : '#e74c3c';
+ var cjIcon = cjIsDone ? '✅' : '🔴';
+ var cjLabel = cjIsDone ? 'Journal Done' : cjMissedDays > 1 ? cjMissedDays+' days missed!' : 'Enter Journal';
+
  // Quick stats row
- h += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px">';
+ h += '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px">';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfCallsLeft===0?'var(--grn)':'var(--pri)')+'">'+bfCallsLeft+'</div><div style="font-size:9px;color:var(--muted)">calls left</div></div>';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfQuotedDue.length>0?'var(--amb)':'var(--grn)')+'">'+bfQuotedDue.length+'</div><div style="font-size:9px;color:var(--muted)">quoted f/u</div></div>';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:var(--pri)">'+bfTodayMeetings.length+'</div><div style="font-size:9px;color:var(--muted)">meetings</div></div>';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:'+(bfActionItemCount>0?'var(--amb)':'var(--grn)')+'">'+bfActionItemCount+'</div><div style="font-size:9px;color:var(--muted)">action items</div></div>';
  h += '<div class="bf-stat" style="background:var(--card);padding:6px 8px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="font-size:18px;font-weight:700;color:var(--pri)">'+bfPct.toFixed(0)+'%</div><div style="font-size:9px;color:var(--muted)">to $100K</div></div>';
+ h += '<div class="bf-stat" onclick="showCoachJournal()" style="cursor:pointer;background:'+cjBg+';padding:6px 8px;border-radius:6px;text-align:center;border:2px solid '+cjBorder+';transition:all .3s'+(cjIsOverdue?';animation:cjPulse 2s infinite':'')+'">';
+ h += '<div style="font-size:18px">'+cjIcon+'</div>';
+ h += '<div style="font-size:9px;color:'+cjColor+';font-weight:'+(cjIsOverdue?'800':'600')+'">'+cjLabel+'</div>';
+ h += '</div>';
  h += '</div>';
 
  // Today's priority list
@@ -6029,24 +6518,34 @@ function renderCallQueue(){
 
  // Calley integration bar (after filter so it shows count for visible leads)
  if(getCalleyToken()){
-  var calleyFilteredLeads = filteredQueue.filter(function(l){return !l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'});
+  // Filter: exclude won, lost, bad numbers, and already-pushed leads
+  var calleyFilteredLeads = filteredQueue.filter(function(l){
+   if(l.calleyPushed || l.stage === 'won' || l.stage === 'lost') return false;
+   // Exclude bad phone numbers
+   var ph = (l.phone||'').replace(/\D/g,'');
+   if(!ph || ph.length < 10) return false;
+   var cl = l.callLog || [];
+   if(cl.length > 0){
+    var lastOutcome = cl[cl.length-1].outcome || '';
+    if(lastOutcome === 'Bad #' || lastOutcome === 'Bad Number' || lastOutcome === 'Wrong Number') return false;
+   }
+   return true;
+  });
   var calleyCount = calleyFilteredLeads.length;
+  // Count already pushed
+  var calleyPushedCount = filteredQueue.filter(function(l){return l.calleyPushed && l.stage !== 'won' && l.stage !== 'lost'}).length;
   var filterLabel = crmQueueFilter === 'all' ? 'All' : crmQueueFilter === 'call_today' ? 'Call Today' : crmQueueFilter === 'need_morning' ? 'Morning' : crmQueueFilter === 'need_afternoon' ? 'Afternoon' : crmQueueFilter === 'need_evening' ? 'Evening' : crmQueueFilter === 'new' ? 'New' : crmQueueFilter === 'attempting' ? 'Attempting' : crmQueueFilter === 'connected' ? 'Connected' : crmQueueFilter === 'discovery' ? 'Discovery' : crmQueueFilter === 'incubator' ? 'Nurturing' : crmQueueFilter === 'meeting' ? 'Meeting Set' : crmQueueFilter === 'quoted' ? 'Quoted' : crmQueueFilter;
   h += '<div class="card" style="padding:6px 12px;margin-bottom:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,var(--atint),var(--card));border:1px solid #ff6b35">';
   h += '<span style="font-size:13px">📱</span>';
-  h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley</span>';
-  h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">Push ' + calleyCount + ' ' + filterLabel + ' leads to Calley</button>';
+  h += '<span style="font-size:11px;font-weight:600;color:#ff6b35">Calley → New Leads</span>';
+  if(calleyCount > 0) h += '<button class="btn btn-sm" onclick="calleyPushFiltered()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">Push ' + calleyCount + ' new leads</button>';
+  if(calleyPushedCount > 0) h += '<button class="btn btn-sm" onclick="calleyResetAndPush()" style="background:#e67e22;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Reset & Re-Push ' + calleyPushedCount + ' ' + filterLabel + '</button>';
   h += '<span id="calleyPushCount" data-leads=\''+JSON.stringify(calleyFilteredLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
   var exportableLeads = filteredQueue.filter(function(l){return l.stage !== 'won' && l.stage !== 'lost'});
   h += '<button class="btn btn-sm" onclick="calleyExportCSV()" style="background:#27ae60;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">📁 Export ' + exportableLeads.length + ' to XLS</button>';
   h += '<span id="calleyExportList" data-leads=\''+JSON.stringify(exportableLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
   h += '<span id="calleyFilterLabel" style="display:none">'+filterLabel+'</span>';
-  var stageKey = crmQueueFilter === 'meeting' ? 'meeting_set' : crmQueueFilter;
-  h += '<span id="calleyStageKey" style="display:none">'+stageKey+'</span>';
-  // Show which Calley list this stage maps to
-  var mappedList = CALLEY_STAGE_LISTS[stageKey];
-  if(mappedList) h += '<span style="font-size:9px;color:#ff6b35;margin-left:2px">→ ' + mappedList.name + '</span>';
-  h += '<button class="btn btn-sm" onclick="calleySyncResults()" style="background:#2980b9;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer">🔄 Sync Results</button>';
+  if(calleyPushedCount > 0) h += '<span style="font-size:9px;color:#ff6b35">📱 '+calleyPushedCount+' in Calley</span>';
   var lastSync = localStorage.getItem('calley_last_sync');
   if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
   h += '</div>';
@@ -6509,6 +7008,19 @@ function renderLeadDetail(){
   h += '</select>';
  }
  h += '<div style="margin-left:auto;display:flex;gap:4px">';
+ // Create Case button — shown prominently for Won leads with no pipeline case
+ if(lead.stage === 'won'){
+  var hasCase = pl.some(function(c){ return c.client && c.client.toLowerCase() === lead.name.toLowerCase(); });
+  if(!hasCase){
+   h += '<button class="btn btn-sm" onclick="showCreateCaseModal('+lead.id+')" style="background:var(--grn);color:#fff;border:none;padding:2px 10px;font-size:10px;border-radius:4px;cursor:pointer;font-weight:700">+ Create Case</button>';
+  } else {
+   h += '<span style="font-size:9px;color:var(--grn);padding:2px 6px;background:var(--gtint);border-radius:4px;border:1px solid var(--grn)">In DuetBooks</span>';
+  }
+ }
+ if(lead.stage === 'won' || lead.stage === 'lost'){
+  h += '<button class="btn btn-sm" onclick="document.getElementById(\'repeat_section_'+lead.id+'\').scrollIntoView({behavior:\'smooth\'})" style="background:var(--pri);color:#fff;border:none;padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer">🔄 New Opp</button>';
+  h += '<button class="btn btn-sm" onclick="document.getElementById(\'callback_section_'+lead.id+'\').scrollIntoView({behavior:\'smooth\'})" style="background:#e74c3c;color:#fff;border:none;padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer">📅 Callback</button>';
+ }
  h += '<button class="btn btn-sm btn-pri" onclick="document.getElementById(\'sched_section_'+lead.id+'\').scrollIntoView({behavior:\'smooth\'})" style="padding:2px 8px;font-size:10px">📅 Schedule</button>';
  if(getCalleyToken()){
   if(lead.calleyPushed){
@@ -6794,18 +7306,18 @@ function renderLeadDetail(){
    } else {
     h += '<h3 style="color:var(--amb)">⚠ No Pipeline Case Found</h3>';
     h += '<p style="font-size:12px">This lead is marked Won but has no matching case in the pipeline.</p>';
-    h += '<button class="btn btn-amb" onclick="createCaseFromLead('+lead.id+')">Create Case Now</button>';
+    h += '<button class="btn btn-amb" onclick="showCreateCaseModal('+lead.id+')">Create Case Now</button>';
    }
    h += '</div>';
   }
   // New Opportunity button
-  h += '<div class="card" style="margin-top:12px;border:2px solid var(--pri);background:var(--ptint)">';
+  h += '<div id="repeat_section_'+lead.id+'" class="card" style="margin-top:12px;border:2px solid var(--pri);background:var(--ptint)">';
   h += '<h3 style="color:var(--pri)">🔄 Repeat Business</h3>';
   h += '<p style="font-size:12px;margin-bottom:8px">Reopen this client for a new product opportunity. Their contact info stays, history is archived.</p>';
   h += '<button class="btn btn-pri" onclick="promptReopenLead('+lead.id+')">New Opportunity</button>';
   h += '</div>';
   // Callback scheduling for won/lost
-  h += '<div class="card" style="margin-top:12px;border:2px solid #e74c3c;background:#fff5f5">';
+  h += '<div id="callback_section_'+lead.id+'" class="card" style="margin-top:12px;border:2px solid #e74c3c;background:#fff5f5">';
   h += '<h3 style="color:#e74c3c">📅 Schedule Callback</h3>';
   if(lead.callbackDate){
    h += '<p style="font-size:12px;margin-bottom:8px">Callback set for <b>'+lead.callbackDate+'</b>';
