@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.11.0';
+var APP_VERSION = 'v1.11.1';
 var APP_BUILD_DATE = '2026-04-16';
 var CHANGELOG = [
+ {ver:'v1.11.1', date:'2026-04-16', notes:[
+  'Coach Journal now syncs across devices via Firebase (was localStorage-only, causing phantom "days missed" on other devices)',
+  'Journal entries merge by date+text — no duplicates across laptop & phone',
+  'One-time migration pushes existing laptop journal entries to Firebase'
+ ]},
  {ver:'v1.11.0', date:'2026-04-16', notes:[
   'Fix: Won leads now sync to BOTH pipeline_2026 AND duetbooks/steve_maxim/cases paths — previously cases were falling through the cracks (Robin Menzies, Dorota Kalinowski)',
   'Dedupe check prevents double-adding on repeat Won conversions',
@@ -429,6 +434,7 @@ function debouncedFirebaseSync(key){
    else if(k==='periods_2025') data = pe2025;
    else if(k==='periods_2026') data = pe2026;
    else if(k==='settings') data = settings;
+   else if(k==='coach_journal') data = getCoachJournal();
    else return Promise.resolve();
    return fbSave(k, data);
   });
@@ -457,7 +463,8 @@ function firebaseLoadAll(callback){
    pipeline_2026:{set:function(v){pl2026=v}, ls:'salestracker_pl_2026'},
    periods_2025:{set:function(v){pe2025=v}, ls:'salestracker_pe_2025'},
    periods_2026:{set:function(v){pe2026=v}, ls:'salestracker_pe_2026'},
-   settings:{set:function(v){settings=v}, ls:'salestracker_settings'}
+   settings:{set:function(v){settings=v}, ls:'salestracker_settings'},
+   coach_journal:{set:function(v){ try{localStorage.setItem(COACH_JOURNAL_KEY, JSON.stringify(v||[]));}catch(e){} }, ls:COACH_JOURNAL_KEY, mergeEntries:true}
   };
   var localTs = localStorage.getItem('fb_lastSync') || '';
   Object.keys(FB_KEYS).forEach(function(key){
@@ -566,6 +573,32 @@ function firebaseLoadAll(callback){
       console.log('[Firebase] Merged '+added+' appointments from '+entry.device);
      }
      return; // done with appointments
+    }
+    // Smart merge for coach_journal — union entries by date+text
+    if(key === 'coach_journal' && Array.isArray(entry.data)){
+     var localJournal = [];
+     try{ localJournal = JSON.parse(localStorage.getItem(COACH_JOURNAL_KEY)) || []; }catch(e){ localJournal = []; }
+     var existingKeys = {};
+     localJournal.forEach(function(j){ existingKeys[(j.date||'')+'|'+(j.text||'')] = true; });
+     var addedJ = 0;
+     entry.data.forEach(function(cj){
+      var k2 = (cj.date||'')+'|'+(cj.text||'');
+      if(!existingKeys[k2]){
+       localJournal.push(cj);
+       existingKeys[k2] = true;
+       addedJ++;
+      }
+     });
+     // Sort by date ascending so array order is stable
+     localJournal.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
+     try{ localStorage.setItem(COACH_JOURNAL_KEY, JSON.stringify(localJournal)); }catch(e){}
+     localStorage.setItem('fb_ts_'+key, cloudTs);
+     if(entry.device) lastSyncDevice = entry.device;
+     if(addedJ > 0){
+      pulled = true;
+      console.log('[Firebase] Merged '+addedJ+' journal entries from '+entry.device);
+     }
+     return;
     }
     FB_KEYS[key].set(entry.data);
     try{ localStorage.setItem(FB_KEYS[key].ls, JSON.stringify(entry.data)); }catch(e){}
@@ -4606,8 +4639,29 @@ var COACH_JOURNAL_KEY = 'duet_coach_journal';
 function getCoachJournal(){
  try{ return JSON.parse(localStorage.getItem(COACH_JOURNAL_KEY)) || []; }catch(e){ return []; }
 }
+
+// One-time migration: push existing localStorage journal entries up to Firebase
+// so other devices can pull them. Runs once per device.
+(function seedJournalToFirebase(){
+ try {
+  if(localStorage.getItem('duet_coach_journal_seeded') === '1') return;
+  var existing = JSON.parse(localStorage.getItem(COACH_JOURNAL_KEY)) || [];
+  if(existing.length === 0){ localStorage.setItem('duet_coach_journal_seeded','1'); return; }
+  // Delay 3s so we don't race with initial Firebase load-all
+  setTimeout(function(){
+   try {
+    debouncedFirebaseSync('coach_journal');
+    localStorage.setItem('duet_coach_journal_seeded','1');
+    console.log('[Journal] Seeded '+existing.length+' entries to Firebase');
+   } catch(e){}
+  }, 3000);
+ } catch(e){}
+})();
+
 function saveCoachJournal(entries){
  try{ localStorage.setItem(COACH_JOURNAL_KEY, JSON.stringify(entries)); }catch(e){}
+ // Sync to Firebase so laptop & phone stay in sync
+ try{ debouncedFirebaseSync('coach_journal'); }catch(e){}
 }
 
 function showCoachJournal(){
