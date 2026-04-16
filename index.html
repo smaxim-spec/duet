@@ -313,9 +313,19 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.10.1';
-var APP_BUILD_DATE = '2026-04-02';
+var APP_VERSION = 'v1.11.0';
+var APP_BUILD_DATE = '2026-04-16';
 var CHANGELOG = [
+ {ver:'v1.11.0', date:'2026-04-16', notes:[
+  'Fix: Won leads now sync to BOTH pipeline_2026 AND duetbooks/steve_maxim/cases paths — previously cases were falling through the cracks (Robin Menzies, Dorota Kalinowski)',
+  'Dedupe check prevents double-adding on repeat Won conversions',
+  'Unwrapped Firebase cases path back to raw array format DuetBooks expects',
+  'Calley Webhook receiver deployed (Cloudflare Worker) — bypasses broken CallDetail API',
+  'Coach Journal red/green indicator on dashboard — stays red persistently until journal entry made',
+  'Red pulsing Journal button added to nav bar next to Call Queue',
+  'Calley Reset & Re-Push now filter-aware — only resets leads matching current CRM view/stage',
+  'Single Calley list workflow — excludes Bad #, Wrong Number, and invalid phones on push'
+ ]},
  {ver:'v1.1.0', date:'2026-03-29', notes:[
   'Objections & Concerns log — track client pushback with category, response, and status (Open/Addressed/Resolved)',
   'Open objection count badge on CRM lead cards for quick visibility',
@@ -4060,8 +4070,8 @@ function convertToPipeline(lead){
  var splitType = lead.agent && lead.agent !== 'Steve' ? 'split' : 'full';
  var yourShare = splitType === 'split' ? origGross * (settings.yourShare/100) : origGross;
  var partnerShare = splitType === 'split' ? origGross * (settings.partnerShare/100) : 0;
- pl.push({
-  id: nextId++,
+ var caseObj = {
+  id: Date.now(), // use timestamp ID to avoid collisions with DuetBooks
   client: lead.name,
   phone: lead.phone || '',
   product: prodName,
@@ -4078,13 +4088,44 @@ function convertToPipeline(lead){
   submitted: new Date().toISOString().substring(0,10),
   estPay: '',
   paidIn: '',
-  notes: 'From CRM lead #' + lead.id
- });
+  notes: 'From CRM lead #' + lead.id,
+  year: new Date().getFullYear(),
+  created: new Date().toISOString()
+ };
+ pl.push(caseObj);
  // Save to localStorage for immediate dashboard update
  try { localStorage.setItem('salestracker_pl_2026', JSON.stringify(pl2026)); } catch(e){}
- // Push to Firebase (DuetBooks is the source of truth)
+ // Push to pipeline_2026 Firebase path
  debouncedFirebaseSync('pipeline_2026');
- showToast(lead.name + ' converted to pipeline case — syncing to DuetBooks!', 4000);
+ // ALSO push to duetbooks/steve_maxim/cases (this is the path DuetBooks actually reads)
+ fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
+  .then(function(r){ return r.json(); })
+  .then(function(booksCases){
+   var arr = booksCases || [];
+   if(arr && !Array.isArray(arr) && arr.data && Array.isArray(arr.data)) arr = arr.data;
+   if(!Array.isArray(arr)) arr = Object.values(arr);
+   // Dedupe by client + product so repeated conversions don't double-add
+   var exists = arr.some(function(x){
+    return x && x.client === caseObj.client && x.product === caseObj.product && x.status !== 'paid';
+   });
+   if(!exists) arr.push(caseObj);
+   return fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(arr)
+   });
+  })
+  .then(function(r){
+   if(r && r.ok){
+    showToast('✅ ' + lead.name + ' pushed to DuetBooks & pipeline', 4000);
+   } else {
+    showToast('⚠️ ' + lead.name + ' in pipeline but DuetBooks sync failed — verify in DuetBooks', 5000);
+   }
+  })
+  .catch(function(e){
+   console.log('DuetBooks push error for ' + lead.name + ':', e);
+   showToast('⚠️ ' + lead.name + ' in pipeline but DuetBooks sync failed', 5000);
+  });
 }
 
 function scheduleAppt(leadId){
