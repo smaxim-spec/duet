@@ -313,9 +313,16 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.11.2';
+var APP_VERSION = 'v1.12.0';
 var APP_BUILD_DATE = '2026-04-16';
 var CHANGELOG = [
+ {ver:'v1.12.0', date:'2026-04-16', notes:[
+  'NEW: 📧 From Email button on each lead\'s Action Items — imports action items directly from Gmail',
+  'Shows recent threads (auto-filtered by lead\'s email if available)',
+  'Extracts action text + due date from email using smart heuristics (action verbs, date phrases like "by Friday")',
+  'Editable preview before saving — tweak text or date as needed',
+  'Requires duet_server.py running locally (laptop only); first use will trigger Gmail OAuth consent'
+ ]},
  {ver:'v1.11.2', date:'2026-04-16', notes:[
   'Calley push is now priority-sorted: fresh (0-call) leads go to the TOP of Calley, 3+ attempt leads to the BOTTOM',
   'Tie-breaker: newer leads first within same call count — so hot Salesforce leads get priority',
@@ -7499,6 +7506,7 @@ function renderLeadDetail(){
  h += '<input id="ai_text_'+lead.id+'" placeholder="New action item..." style="flex:1;min-width:150px;font-size:11px;padding:4px 6px">';
  h += '<input type="date" id="ai_due_'+lead.id+'" value="'+toYMD(new Date())+'" style="font-size:11px;padding:4px 6px;width:auto">';
  h += '<button class="btn btn-pri btn-sm" onclick="addActionItemToLead('+lead.id+')" style="font-size:10px;padding:2px 8px;white-space:nowrap">+ Add</button>';
+ h += '<button class="btn btn-sm" onclick="showEmailImportModal('+lead.id+')" style="font-size:10px;padding:2px 8px;white-space:nowrap;background:#fff;border:1px solid var(--pri);color:var(--pri)" title="Import action item from Gmail (laptop only, requires duet server)">📧 From Email</button>';
  h += '</div>';
  // Open items
  if(openAI.length === 0 && doneAI.length === 0){
@@ -7575,6 +7583,155 @@ function addActionItemToLead(leadId){
  saveLeads();
  showToast('Action item added',1500);
  renderCRM();
+}
+
+// ── GMAIL → ACTION ITEM IMPORT (laptop only, requires duet_server.py running) ──
+
+function showEmailImportModal(leadId){
+ var lead = leads.find(function(l){return l.id===leadId});
+ if(!lead){ showToast('Lead not found', 2000); return; }
+
+ var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+ if(!isLocal){
+  showToast('Email import only works on laptop (http://localhost:8787). Open the CRM from your local server.', 5000);
+  return;
+ }
+
+ // Build modal shell
+ var overlay = document.createElement('div');
+ overlay.id = 'emailImportOverlay';
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+ overlay.innerHTML =
+  '<div style="background:var(--bg);max-width:720px;width:100%;max-height:90vh;border-radius:12px;padding:20px;overflow-y:auto">' +
+   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+    '<h3 style="margin:0;color:var(--pri)">📧 Import Action Item from Gmail</h3>' +
+    '<button onclick="closeEmailImport()" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--muted)">×</button>' +
+   '</div>' +
+   '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">For lead: <b>'+lead.name+'</b>'+(lead.email?' · '+lead.email:'')+'</div>' +
+   '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">' +
+    '<input id="eim_search" placeholder="Gmail search (e.g. from:name@x.com or subject)" value="'+(lead.email?'from:'+lead.email:'')+'" style="flex:1;min-width:200px;padding:6px 8px;font-size:12px">' +
+    '<button class="btn btn-pri btn-sm" onclick="loadEmailThreads('+leadId+')" style="font-size:12px">Search</button>' +
+    '<button class="btn btn-sm" onclick="loadEmailThreads('+leadId+',true)" style="font-size:12px;background:#fff;border:1px solid var(--border)" title="Show all recent emails">Recent</button>' +
+   '</div>' +
+   '<div id="eim_results" style="min-height:200px"><p style="color:var(--muted);text-align:center;padding:40px">Loading…</p></div>' +
+  '</div>';
+ document.body.appendChild(overlay);
+
+ // Auto-load based on whether lead has email
+ loadEmailThreads(leadId, !lead.email);
+}
+
+function closeEmailImport(){
+ var o = document.getElementById('emailImportOverlay');
+ if(o) o.remove();
+}
+
+function loadEmailThreads(leadId, showAll){
+ var resultsEl = document.getElementById('eim_results');
+ if(!resultsEl) return;
+ resultsEl.innerHTML = '<p style="color:var(--muted);text-align:center;padding:40px">Loading from Gmail…</p>';
+ var searchEl = document.getElementById('eim_search');
+ var q = showAll ? '' : (searchEl ? searchEl.value.trim() : '');
+ var url = '/gmail/recent?max=20' + (q ? '&q='+encodeURIComponent(q) : '');
+
+ fetch(url).then(function(r){
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+ }).then(function(data){
+  var threads = data.threads || [];
+  if(threads.length === 0){
+   resultsEl.innerHTML = '<p style="color:var(--muted);text-align:center;padding:40px">No emails found. Try clicking <b>Recent</b> or adjust your search.</p>';
+   return;
+  }
+  var h = '<div style="max-height:50vh;overflow-y:auto;border:1px solid var(--border);border-radius:6px">';
+  threads.forEach(function(t, idx){
+   var when = t.date ? new Date(t.date).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+   var unreadDot = t.unread ? '<span style="color:var(--pri);font-size:8px">●</span> ' : '';
+   h += '<div onclick="previewEmailThread('+leadId+',\''+t.id+'\')" style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s" onmouseover="this.style.background=\'var(--ptint)\'" onmouseout="this.style.background=\'transparent\'">';
+   h += '<div style="display:flex;justify-content:space-between;gap:8px">';
+   h += '<div style="font-weight:'+(t.unread?'700':'500')+';font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+unreadDot+(t.fromName||t.from)+'</div>';
+   h += '<div style="font-size:11px;color:var(--muted);white-space:nowrap">'+when+'</div>';
+   h += '</div>';
+   h += '<div style="font-size:12px;color:var(--text);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(t.subject)+'</div>';
+   h += '<div style="font-size:11px;color:var(--muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;max-height:28px">'+escapeHtml(t.snippet)+'</div>';
+   h += '</div>';
+  });
+  h += '</div>';
+  h += '<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:8px">Click an email to extract action item</div>';
+  resultsEl.innerHTML = h;
+ }).catch(function(err){
+  resultsEl.innerHTML = '<div style="padding:20px;background:rgba(231,76,60,0.1);border-radius:6px;color:#e74c3c">' +
+   '<b>Gmail fetch failed:</b> '+err.message+'<br><br>' +
+   '<span style="font-size:12px;color:var(--text)">Make sure:<br>' +
+   '• duet_server.py is running (<code>python3 duet_server.py</code>)<br>' +
+   '• You\'ve authorized Gmail access (first run will open a browser)<br>' +
+   '• The CRM URL is http://localhost:8787/ (not GitHub Pages)</span></div>';
+ });
+}
+
+function previewEmailThread(leadId, threadId){
+ var resultsEl = document.getElementById('eim_results');
+ if(!resultsEl) return;
+ resultsEl.innerHTML = '<p style="color:var(--muted);text-align:center;padding:40px">Extracting action item from email…</p>';
+
+ fetch('/gmail/extract/'+encodeURIComponent(threadId)).then(function(r){
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+ }).then(function(data){
+  var h = '<div style="background:var(--ptint);padding:12px;border-radius:6px;margin-bottom:12px;font-size:12px">';
+  h += '<div style="color:var(--muted);margin-bottom:4px">From: <b>'+escapeHtml(data.from||'')+'</b></div>';
+  h += '<div style="font-weight:700;margin-bottom:4px">'+escapeHtml(data.subject||'')+'</div>';
+  if(data.bodyPreview) h += '<div style="color:var(--muted);font-size:11px;max-height:90px;overflow-y:auto;border-top:1px solid var(--border);padding-top:6px;margin-top:6px;white-space:pre-wrap">'+escapeHtml(data.bodyPreview)+'…</div>';
+  h += '</div>';
+
+  h += '<div style="margin-bottom:12px">';
+  h += '<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Action item text (edit if needed):</label>';
+  h += '<textarea id="eim_text" rows="2" style="width:100%;padding:6px 8px;font-size:13px;box-sizing:border-box">'+escapeHtml(data.text||'')+'</textarea>';
+  h += '</div>';
+
+  h += '<div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">';
+  h += '<label style="font-size:11px;color:var(--muted)">Due:</label>';
+  h += '<input type="date" id="eim_due" value="'+(data.due||toYMD(new Date()))+'" style="padding:4px 8px;font-size:13px">';
+  h += '</div>';
+
+  h += '<div style="display:flex;gap:8px;justify-content:flex-end">';
+  h += '<button class="btn btn-sm" onclick="loadEmailThreads('+leadId+')" style="background:#fff;border:1px solid var(--border)">← Back</button>';
+  h += '<button class="btn btn-pri btn-sm" onclick="saveEmailActionItem('+leadId+')">✅ Add Action Item</button>';
+  h += '</div>';
+  resultsEl.innerHTML = h;
+ }).catch(function(err){
+  resultsEl.innerHTML = '<div style="padding:20px;background:rgba(231,76,60,0.1);border-radius:6px;color:#e74c3c">Extract failed: '+err.message+'</div>';
+ });
+}
+
+function saveEmailActionItem(leadId){
+ var lead = leads.find(function(l){return l.id===leadId});
+ if(!lead){ showToast('Lead not found', 2000); return; }
+ var textEl = document.getElementById('eim_text');
+ var dueEl = document.getElementById('eim_due');
+ var text = textEl ? textEl.value.trim() : '';
+ var due = dueEl ? dueEl.value : toYMD(new Date());
+ if(!text){ showToast('Action item text is empty', 2000); return; }
+ if(!lead.actionItems) lead.actionItems = [];
+ lead.actionItems.push({
+  id: nextActionId++,
+  text: text,
+  due: due,
+  done: false,
+  created: new Date().toISOString(),
+  source: 'gmail'
+ });
+ saveLeads();
+ showToast('📧 Action item added from email', 2500);
+ closeEmailImport();
+ renderCRM();
+}
+
+// Tiny HTML escape helper (reused by email modal)
+function escapeHtml(s){
+ return String(s||'').replace(/[&<>"']/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+ });
 }
 
 function toggleActionItem(leadId, itemId){
