@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.12.1';
+var APP_VERSION = 'v1.12.2';
 var APP_BUILD_DATE = '2026-04-30';
 var CHANGELOG = [
+ {ver:'v1.12.2', date:'2026-04-30', notes:[
+  'Action item IDs now timestamp-based (Date.now()) — eliminates cross-device collisions when phone & laptop add items while offline',
+  'Deletion-aware merge: action items removed/moved on one device now propagate to the other instead of being silently re-added',
+  'Sticky-done preserved on conflicts: if either device marked an item complete, it stays complete on merge',
+  'One-time data fix: re-IDed all 29 action items globally + cleaned John Raifstanger/Daisy Delgado mismatch'
+ ]},
  {ver:'v1.12.1', date:'2026-04-30', notes:[
   'Fix: Action items now sync between phone and laptop (merge logic was silently ignoring actionItems on pull)',
   'Union by id with sticky-done: items added on either device propagate; if same item is marked done on one device, the done state wins on merge',
@@ -539,24 +545,51 @@ function firebaseLoadAll(callback){
          if(cl.needsAnalysis && !local.needsAnalysis) merged.needsAnalysis = cl.needsAnalysis;
          if(cl.callbackDate && !local.callbackDate) merged.callbackDate = cl.callbackDate;
          if(cl.callbackNote && !local.callbackNote) merged.callbackNote = cl.callbackNote;
-         // Union action items by id — phone-added items + laptop-added items, no duplicates.
-         // If same id exists in both, prefer the version with done=true (marking-done is forward action).
+         // Deletion-aware action item sync. Cloud is authoritative for what SHOULD exist —
+         // but we preserve local items that were created AFTER our last successful sync
+         // (those are local-only adds the cloud doesn't know about yet). Items missing from
+         // cloud whose `created` is older than our last sync are treated as deleted-elsewhere
+         // and dropped. Sticky-done preserved on conflicts.
          if(aiDifferent){
-          var aiMap = {};
-          (local.actionItems||[]).forEach(function(a){ if(a && a.id !== undefined) aiMap[a.id] = a; });
-          (cl.actionItems||[]).forEach(function(a){
+          var localItems = local.actionItems || [];
+          var cloudItems = cl.actionItems || [];
+          var localById = {};
+          localItems.forEach(function(a){ if(a && a.id !== undefined) localById[a.id] = a; });
+          var cloudById = {};
+          cloudItems.forEach(function(a){ if(a && a.id !== undefined) cloudById[a.id] = a; });
+          var resultBy = {};
+          // Start with cloud — cloud is authoritative
+          cloudItems.forEach(function(a){
            if(!a || a.id === undefined) return;
-           var ex = aiMap[a.id];
-           if(!ex){ aiMap[a.id] = a; return; }
-           // Conflict — merge: cloud values win, but done-state ORs (sticky-done)
-           var combined = {};
-           Object.keys(ex).forEach(function(k){ combined[k] = ex[k]; });
-           Object.keys(a).forEach(function(k){ combined[k] = a[k]; });
-           combined.done = !!(ex.done || a.done);
-           if(combined.done && !combined.completedDate) combined.completedDate = ex.completedDate || a.completedDate || new Date().toISOString();
-           aiMap[a.id] = combined;
+           var lo = localById[a.id];
+           if(!lo){
+            resultBy[a.id] = a;
+           } else {
+            // Both sides have it — merge with sticky-done
+            var combined = {};
+            Object.keys(lo).forEach(function(k){ combined[k] = lo[k]; });
+            Object.keys(a).forEach(function(k){ combined[k] = a[k]; });
+            combined.done = !!(lo.done || a.done);
+            if(combined.done && !combined.completedDate){
+             combined.completedDate = a.completedDate || lo.completedDate || new Date().toISOString();
+            }
+            resultBy[a.id] = combined;
+           }
           });
-          merged.actionItems = Object.keys(aiMap).map(function(k){return aiMap[k]}).sort(function(a,b){return (a.id||0)-(b.id||0)});
+          // Local-only items: keep only if newer than last sync (else cloud deleted them)
+          localItems.forEach(function(a){
+           if(!a || a.id === undefined) return;
+           if(cloudById[a.id]) return;
+           var itemCreated = a.created || '';
+           var keepIt = false;
+           if(!keyLocalTs){
+            keepIt = true; // first-load, no sync history → keep everything
+           } else if(itemCreated && itemCreated > keyLocalTs){
+            keepIt = true; // created after our last cloud sync → new local add
+           }
+           if(keepIt) resultBy[a.id] = a;
+          });
+          merged.actionItems = Object.keys(resultBy).map(function(k){return resultBy[k]}).sort(function(a,b){return (a.id||0)-(b.id||0)});
          }
          mergedLeads[idx] = merged;
          mergeCount++;
@@ -1090,6 +1123,15 @@ try {
  appointments = savedAppt ? JSON.parse(savedAppt) : [];
 } catch(e) { appointments = []; }
 var nextApptId = appointments.length > 0 ? Math.max.apply(null, appointments.map(function(a){return a.id})) + 1 : 1;
+// Action item IDs are now timestamp-based (Date.now() in ms × 1000 + counter) so they're
+// globally unique across devices without coordination. Old incrementing-counter approach
+// caused collisions when phone & laptop diverged offline.
+var _aiIdCounter = 0;
+function newActionId(){
+ _aiIdCounter = (_aiIdCounter + 1) % 1000;
+ return Date.now() * 1000 + _aiIdCounter;
+}
+// Kept for backward compatibility — some places may still reference it
 var nextActionId = 1;
 try { leads.forEach(function(l){ (l.actionItems||[]).forEach(function(ai){ if(ai.id>=nextActionId) nextActionId=ai.id+1; }); }); } catch(e){}
 
@@ -7605,7 +7647,7 @@ function addActionItemToLead(leadId){
  if(!text){ showToast('Enter action item text',2000); return; }
  if(!lead.actionItems) lead.actionItems = [];
  lead.actionItems.push({
-  id: nextActionId++,
+  id: newActionId(),
   text: text,
   due: dueEl ? dueEl.value : toYMD(new Date()),
   done: false,
@@ -7745,7 +7787,7 @@ function saveEmailActionItem(leadId){
  if(!text){ showToast('Action item text is empty', 2000); return; }
  if(!lead.actionItems) lead.actionItems = [];
  lead.actionItems.push({
-  id: nextActionId++,
+  id: newActionId(),
   text: text,
   due: due,
   done: false,
@@ -7991,7 +8033,7 @@ function saveVoiceActionItem(){
  if(lead){
   if(!lead.actionItems) lead.actionItems = [];
   lead.actionItems.push({
-   id: nextActionId++,
+   id: newActionId(),
    text: text,
    due: dueEl ? dueEl.value : toYMD(new Date()),
    done: false,
