@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.12.0';
-var APP_BUILD_DATE = '2026-04-16';
+var APP_VERSION = 'v1.12.1';
+var APP_BUILD_DATE = '2026-04-30';
 var CHANGELOG = [
+ {ver:'v1.12.1', date:'2026-04-30', notes:[
+  'Fix: Action items now sync between phone and laptop (merge logic was silently ignoring actionItems on pull)',
+  'Union by id with sticky-done: items added on either device propagate; if same item is marked done on one device, the done state wins on merge',
+  'Also detects when an item is marked done on one device and syncs the change'
+ ]},
  {ver:'v1.12.0', date:'2026-04-16', notes:[
   'NEW: 📧 From Email button on each lead\'s Action Items — imports action items directly from Gmail',
   'Shows recent threads (auto-filtered by lead\'s email if available)',
@@ -501,12 +506,19 @@ function firebaseLoadAll(callback){
       } else {
        // Both have it — pick the one with more recent changes
        // Compare: stage changes, meeting data, call log length, stageEnteredDate
+       // Fingerprint action items so we detect any difference (added, removed, marked done)
+       function _aiFingerprint(items){
+        return (items||[]).map(function(a){return (a&&a.id!==undefined?a.id:'?')+':'+(a&&a.done?'d':'o')+':'+(a&&a.text||'').slice(0,20)}).sort().join('|');
+       }
+       var aiDifferent = _aiFingerprint(local.actionItems) !== _aiFingerprint(cl.actionItems);
+
        var cloudNewer = false;
        if(cl.meetingDate && !local.meetingDate) cloudNewer = true;
        else if(cl.stage !== local.stage && cl.stageEnteredDate > (local.stageEnteredDate||'')){
         cloudNewer = true;
        }
        else if((cl.callLog||[]).length > (local.callLog||[]).length) cloudNewer = true;
+       else if(aiDifferent) cloudNewer = true;
        if(cloudNewer){
         // Merge: take cloud's stage/meeting/callLog but keep local's extra fields
         var idx = mergedLeads.findIndex(function(m){return m.id === cl.id});
@@ -527,6 +539,25 @@ function firebaseLoadAll(callback){
          if(cl.needsAnalysis && !local.needsAnalysis) merged.needsAnalysis = cl.needsAnalysis;
          if(cl.callbackDate && !local.callbackDate) merged.callbackDate = cl.callbackDate;
          if(cl.callbackNote && !local.callbackNote) merged.callbackNote = cl.callbackNote;
+         // Union action items by id — phone-added items + laptop-added items, no duplicates.
+         // If same id exists in both, prefer the version with done=true (marking-done is forward action).
+         if(aiDifferent){
+          var aiMap = {};
+          (local.actionItems||[]).forEach(function(a){ if(a && a.id !== undefined) aiMap[a.id] = a; });
+          (cl.actionItems||[]).forEach(function(a){
+           if(!a || a.id === undefined) return;
+           var ex = aiMap[a.id];
+           if(!ex){ aiMap[a.id] = a; return; }
+           // Conflict — merge: cloud values win, but done-state ORs (sticky-done)
+           var combined = {};
+           Object.keys(ex).forEach(function(k){ combined[k] = ex[k]; });
+           Object.keys(a).forEach(function(k){ combined[k] = a[k]; });
+           combined.done = !!(ex.done || a.done);
+           if(combined.done && !combined.completedDate) combined.completedDate = ex.completedDate || a.completedDate || new Date().toISOString();
+           aiMap[a.id] = combined;
+          });
+          merged.actionItems = Object.keys(aiMap).map(function(k){return aiMap[k]}).sort(function(a,b){return (a.id||0)-(b.id||0)});
+         }
          mergedLeads[idx] = merged;
          mergeCount++;
         }
