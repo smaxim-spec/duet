@@ -313,9 +313,17 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.12.2';
+var APP_VERSION = 'v1.12.3';
 var APP_BUILD_DATE = '2026-04-30';
 var CHANGELOG = [
+ {ver:'v1.12.3', date:'2026-04-30', notes:[
+  'Pre-push verification when marking a lead Won: if Agent / Premium / Product is blank, prompts you to fill in before pushing to DuetBooks',
+  'No prompt at all when all 3 fields are filled — zero friction in the common case',
+  'Product dropdown auto-filtered by lead\'s interest category (life, annuity, IUL, banking)',
+  'Agent dropdown includes "Solo (no split — 100% to me)" as the default option',
+  '"Push anyway with blanks" escape hatch preserves old behavior if needed',
+  'Email, phone, notes, age remain unverified (per spec)'
+ ]},
  {ver:'v1.12.2', date:'2026-04-30', notes:[
   'Action item IDs now timestamp-based (Date.now()) — eliminates cross-device collisions when phone & laptop add items while offline',
   'Deletion-aware merge: action items removed/moved on one device now propagate to the other instead of being silently re-added',
@@ -3880,7 +3888,7 @@ function logCall(leadId, outcome, block, notes){
  }
  if(outcome === 'Won'){
   lead.stage = 'won';
-  convertToPipeline(lead);
+  verifyBeforeWonPush(lead, function(){ convertToPipeline(lead); });
  }
  if(outcome === 'Callback'){
   // Prompt for callback date
@@ -4071,8 +4079,8 @@ function updateLeadStage(id, newStage){
   }
  }
  if(newStage === 'won'){
-  // Auto-create pipeline case when marking as won
-  convertToPipeline(lead);
+  // Auto-create pipeline case when marking as won — verify required fields first
+  verifyBeforeWonPush(lead, function(){ convertToPipeline(lead); });
   var winHtml = '<div style="margin-bottom:6px"><b>🎉 '+lead.name+' — Won!</b> Why did we win?</div><div style="display:flex;gap:4px;flex-wrap:wrap">';
   WIN_REASONS.forEach(function(r){
    winHtml += '<button onclick="event.stopPropagation();setWinReason('+lead.id+',\''+r+'\')" style="background:var(--grn);color:#fff;border:none;padding:8px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">'+r+'</button>';
@@ -4197,6 +4205,144 @@ function deleteLead(id){
  leads = leads.filter(function(l){return l.id !== id});
  saveLeads();
  renderCRM();
+}
+
+// ── PRE-PUSH VERIFICATION (DuetBooks is source of truth) ──
+// Before convertToPipeline runs, prompt the user to fill in any blank
+// REQUIRED fields (agent, premium, product). Skip prompt entirely if all filled.
+// Email/phone/notes/age are NOT verified.
+var INTEREST_TO_PRODUCT_CAT = {
+ 'Annuity': 'Annuities',
+ 'Life Insurance': 'Life (Whole / Term)',
+ 'IUL / Universal Life': 'IUL / Universal Life',
+ 'Banking': 'Banking / CD / Other'
+};
+
+function verifyBeforeWonPush(lead, onConfirm){
+ var agentBlank = !lead.agent || (lead.agent + '').trim() === '';
+ var premiumNum = parseFloat(lead.estPremium) || 0;
+ var premiumBlank = !lead.estPremium || premiumNum <= 0;
+ var productBlank = !lead.selectedProduct || (lead.selectedProduct + '').trim() === '';
+
+ // All filled → push immediately, no friction
+ if(!agentBlank && !premiumBlank && !productBlank){
+  return onConfirm();
+ }
+
+ var preferredCat = INTEREST_TO_PRODUCT_CAT[lead.interest] || '';
+ var categories = [];
+ products.forEach(function(p){ if(categories.indexOf(p.cat) < 0) categories.push(p.cat); });
+
+ var overlay = document.createElement('div');
+ overlay.id = 'wonVerifyOverlay';
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+ var h = '<div style="background:var(--bg);max-width:520px;width:100%;max-height:90vh;border-radius:12px;padding:22px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.4)">';
+ h += '<h3 style="margin:0 0 6px;color:var(--pri)">🎉 Confirm Won case for ' + escapeHtml(lead.name) + '</h3>';
+ h += '<p style="font-size:12px;color:var(--muted);margin:0 0 16px">Some required fields are blank. Fill them in before pushing to DuetBooks (the source of truth).</p>';
+
+ // Agent
+ if(agentBlank){
+  h += '<div style="margin-bottom:14px">';
+  h += '<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">⚠ Split Agent</label>';
+  h += '<select id="vbw_agent" style="width:100%;padding:8px;font-size:13px">';
+  h += '<option value="">— Solo (no split — 100% to me) —</option>';
+  splitAgents.forEach(function(a){
+   if(a && a.name){
+    h += '<option value="' + escapeHtml(a.name) + '">' + escapeHtml(a.name) + (a.email ? ' (' + escapeHtml(a.email) + ')' : '') + '</option>';
+   }
+  });
+  h += '</select>';
+  h += '</div>';
+ } else {
+  h += '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 10px;background:rgba(39,174,96,0.08);border-radius:6px">✓ Agent: <b>' + escapeHtml(lead.agent) + '</b></div>';
+ }
+
+ // Premium
+ if(premiumBlank){
+  h += '<div style="margin-bottom:14px">';
+  h += '<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">⚠ Premium / Deposit Amount ($)</label>';
+  h += '<input id="vbw_premium" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:8px;font-size:13px;box-sizing:border-box">';
+  h += '</div>';
+ } else {
+  h += '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 10px;background:rgba(39,174,96,0.08);border-radius:6px">✓ Premium: <b>$' + parseFloat(lead.estPremium).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + '</b></div>';
+ }
+
+ // Product
+ if(productBlank){
+  h += '<div style="margin-bottom:14px">';
+  h += '<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">⚠ Product</label>';
+  h += '<select id="vbw_product_cat" onchange="vbwUpdateProductList()" style="width:100%;padding:8px;font-size:13px;margin-bottom:6px;box-sizing:border-box">';
+  categories.forEach(function(c){
+   var sel = (c === preferredCat) ? ' selected' : '';
+   h += '<option value="' + escapeHtml(c) + '"' + sel + '>' + escapeHtml(c) + '</option>';
+  });
+  h += '</select>';
+  h += '<select id="vbw_product" style="width:100%;padding:8px;font-size:13px;box-sizing:border-box"></select>';
+  h += '<div style="font-size:11px;color:var(--muted);margin-top:4px">Filtered by category. Lead\'s interest: ' + escapeHtml(lead.interest || 'unknown') + '</div>';
+  h += '</div>';
+ } else {
+  h += '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 10px;background:rgba(39,174,96,0.08);border-radius:6px">✓ Product: <b>' + escapeHtml(lead.selectedProduct) + '</b></div>';
+ }
+
+ h += '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap">';
+ h += '<button onclick="closeWonVerify()" style="padding:8px 14px;font-size:13px;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:6px;cursor:pointer">Cancel</button>';
+ h += '<button onclick="vbwPushAnyway(' + lead.id + ')" style="padding:8px 14px;font-size:13px;background:transparent;border:1px solid #e74c3c;color:#e74c3c;border-radius:6px;cursor:pointer" title="Push to DuetBooks with blank values — defaults will be applied">Push anyway with blanks</button>';
+ h += '<button onclick="vbwConfirmPush(' + lead.id + ')" class="btn btn-pri" style="padding:8px 14px;font-size:13px;font-weight:700">✅ Confirm & Push</button>';
+ h += '</div>';
+ h += '</div>';
+ overlay.innerHTML = h;
+ document.body.appendChild(overlay);
+
+ window._vbwCallback = onConfirm;
+ if(productBlank) setTimeout(vbwUpdateProductList, 30);
+}
+
+function vbwUpdateProductList(){
+ var catEl = document.getElementById('vbw_product_cat');
+ var prodEl = document.getElementById('vbw_product');
+ if(!catEl || !prodEl) return;
+ var cat = catEl.value;
+ prodEl.innerHTML = '';
+ products.filter(function(p){ return p.cat === cat; }).forEach(function(p){
+  var opt = document.createElement('option');
+  opt.value = p.name;
+  opt.textContent = p.name;
+  prodEl.appendChild(opt);
+ });
+}
+
+function closeWonVerify(){
+ var o = document.getElementById('wonVerifyOverlay');
+ if(o) o.remove();
+ window._vbwCallback = null;
+}
+
+function vbwConfirmPush(leadId){
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead){ closeWonVerify(); return; }
+ var agentEl = document.getElementById('vbw_agent');
+ var premiumEl = document.getElementById('vbw_premium');
+ var prodEl = document.getElementById('vbw_product');
+ if(agentEl) lead.agent = agentEl.value || '';
+ if(premiumEl){
+  var p = parseFloat(premiumEl.value);
+  if(!p || p <= 0){ showToast('Enter a valid premium amount (or use Push anyway)', 3000); return; }
+  lead.estPremium = p;
+ }
+ if(prodEl){
+  if(!prodEl.value){ showToast('Pick a product (or use Push anyway)', 3000); return; }
+  lead.selectedProduct = prodEl.value;
+ }
+ saveLeads();
+ var cb = window._vbwCallback;
+ closeWonVerify();
+ if(cb) cb();
+}
+
+function vbwPushAnyway(leadId){
+ var cb = window._vbwCallback;
+ closeWonVerify();
+ if(cb) cb();
 }
 
 function convertToPipeline(lead){
