@@ -313,9 +313,17 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.13.1';
+var APP_VERSION = 'v1.14.0';
 var APP_BUILD_DATE = '2026-05-03';
 var CHANGELOG = [
+ {ver:'v1.14.0', date:'2026-05-03', notes:[
+  'NEW: Past Manager Weekly Reports — pick any of the last 12 weeks from the "📅 Week:" dropdown',
+  'Past weeks reconstruct from current data (filtered to the week\'s date range) — banner explains the caveat',
+  'Snapshots: every time you view the current week report, an exact HTML snapshot is auto-saved to Firebase (throttled 1/min)',
+  'When you re-view a past week, snapshot loads automatically if available — perfect historical fidelity',
+  'Falls back to reconstructed view if no snapshot exists (weeks before this version was deployed)',
+  '"← Back to current week" button on past-week banners for quick return'
+ ]},
  {ver:'v1.13.1', date:'2026-05-03', notes:[
   'Phone auto-rescue: on every load, phone now force-pulls fresh data from Firebase, bypassing the firebaseLoadAll merge bug + localStorage quota issues that gave partial data',
   'NEW "🔄 Sync" button in CRM header (both devices): manually pull fresh from cloud — escape hatch if anything ever looks out of sync',
@@ -2452,9 +2460,37 @@ function loadAndShowBackupsModal(){
 function renderEM(){
  var h = '<h2 style="margin-bottom:16px;color:var(--dgrn)">Reports</h2>';
 
- // Report filter + generate
+ // Report filter + generate + week selector
  h += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;align-items:center">';
  h += '<button class="btn btn-dgrn" onclick="genReport()">Manager Weekly Report</button>';
+ // Week selector dropdown (last 12 weeks, Friday starts)
+ h += '<span style="margin-left:10px;font-size:11px;color:var(--muted);font-weight:600">📅 Week:</span>';
+ h += '<select id="reportWeekSelect" onchange="genReport(this.value)" style="padding:4px 8px;font-size:12px">';
+ var _weekOpts = (function(){
+  var opts = [];
+  // Current week's Friday
+  var now = new Date();
+  var d = now.getDay();
+  var daysSinceFri = (d + 2) % 7;
+  var curFri = new Date(now);
+  curFri.setDate(now.getDate() - daysSinceFri);
+  curFri.setHours(0,0,0,0);
+  for(var i=0;i<12;i++){
+   var fri = new Date(curFri);
+   fri.setDate(curFri.getDate() - (i*7));
+   var thu = new Date(fri); thu.setDate(fri.getDate()+6);
+   var label = fri.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '–' + thu.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+   if(i===0) label = '📍 Current week (' + label + ')';
+   else if(i===1) label = 'Last week (' + label + ')';
+   else label = i + ' weeks ago (' + label + ')';
+   var ymd = fri.getFullYear()+'-'+String(fri.getMonth()+1).padStart(2,'0')+'-'+String(fri.getDate()).padStart(2,'0');
+   var sel = (reportWeekStart && reportWeekStart === ymd) ? ' selected' : (i===0 && !reportWeekStart ? ' selected' : '');
+   opts.push('<option value="'+ymd+'"'+sel+'>'+label+'</option>');
+  }
+  return opts.join('');
+ })();
+ h += _weekOpts;
+ h += '</select>';
  h += '<span style="margin-left:10px;font-size:11px;color:var(--muted)">Filter:</span>';
  var rFilters = [{k:'open',lbl:'Open (not paid)'},{k:'all',lbl:'All'},{k:'pending',lbl:'Pending'},{k:'submitted',lbl:'Submitted'},{k:'approved',lbl:'Approved'},{k:'issued',lbl:'Issued'},{k:'paid',lbl:'Paid'}];
  rFilters.forEach(function(f){
@@ -3064,18 +3100,37 @@ var qbStatusFilter = 'all';
 var qbIncludeCDs = false;
 var qbIncludeReversals = false;
 
-function genReport(){
+// Week selection state (for past-week reports). Empty = current week.
+var reportWeekStart = '';
+
+function genReport(weekStartYMDArg){
+ // Track selected week so the dropdown stays in sync after re-render
+ if(weekStartYMDArg !== undefined) reportWeekStart = weekStartYMDArg || '';
+
  var f = reportFilter || 'open';
  var pf = reportProdFilter || 'all';
 
- // Calculate Friday-Thursday week
+ // Calculate Friday-Thursday week. Default to current week's Friday;
+ // override with reportWeekStart if a past week was picked from the dropdown.
  var now = new Date();
- var day = now.getDay(); // 0=Sun,1=Mon...6=Sat
- // Days since last Friday: Fri=5
- var daysSinceFri = (day + 2) % 7; // Fri=0, Sat=1, Sun=2, Mon=3, Tue=4, Wed=5, Thu=6
- var thisThurs = new Date(now);
- thisThurs.setDate(now.getDate() - daysSinceFri);
- thisThurs.setHours(0,0,0,0);
+ var day = now.getDay();
+ var daysSinceFri = (day + 2) % 7;
+ var currentFri = new Date(now);
+ currentFri.setDate(now.getDate() - daysSinceFri);
+ currentFri.setHours(0,0,0,0);
+
+ var thisThurs;
+ if(reportWeekStart){
+  // Parse YYYY-MM-DD into a Date at local midnight
+  var parts = reportWeekStart.split('-');
+  thisThurs = new Date(parseInt(parts[0],10), parseInt(parts[1],10)-1, parseInt(parts[2],10));
+  thisThurs.setHours(0,0,0,0);
+ } else {
+  thisThurs = currentFri;
+ }
+ var isCurrentWeek = (thisThurs.getTime() === currentFri.getTime());
+ var weeksAgo = Math.round((currentFri.getTime() - thisThurs.getTime()) / (7 * 86400000));
+
  var thisWed = new Date(thisThurs);
  thisWed.setDate(thisThurs.getDate() + 6);
  thisWed.setHours(23,59,59,999);
@@ -3394,7 +3449,59 @@ function genReport(){
  h += '<button class="btn btn-outline btn-sm" onclick="debugMailto()" style="margin-left:8px">Debug mailto</button>';
  h += '</div>';
 
- $1('#reportArea').innerHTML = h;
+ // ── Past-week banner / snapshot logic ──
+ var weekKey = thisThurs.getFullYear()+'-'+String(thisThurs.getMonth()+1).padStart(2,'0')+'-'+String(thisThurs.getDate()).padStart(2,'0');
+ var pastBanner = '';
+ if(!isCurrentWeek){
+  pastBanner = '<div style="background:rgba(243,156,18,0.12);border-left:4px solid var(--amb);padding:10px 14px;margin-bottom:12px;border-radius:4px;font-size:13px">';
+  pastBanner += '<b style="color:#d68910">📸 Viewing past week: '+weekLabel+' ('+(weeksAgo===1?'last week':weeksAgo+' weeks ago')+')</b><br>';
+  pastBanner += '<span style="font-size:11px;color:var(--muted)">Reconstructed from current data — values reflect the latest case statuses, not necessarily what was true at the time.</span>';
+  pastBanner += '<button onclick="reportWeekStart=\'\';genReport()" style="margin-left:10px;background:none;border:1px solid #d68910;color:#d68910;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">← Back to current week</button>';
+  pastBanner += '</div>';
+ }
+ $1('#reportArea').innerHTML = pastBanner + h;
+
+ // ── Snapshot save (current week only) ──
+ // Saves the rendered report HTML to Firebase so future re-runs can replay
+ // the exact view from this point in time. Throttled to once per minute per
+ // (week, filter, prodFilter) combo to avoid hammering Firebase on every render.
+ if(isCurrentWeek && !isPhone()){
+  var snapKey = weekKey + '_' + f + '_' + pf;
+  if(!window._lastSnapSave) window._lastSnapSave = {};
+  var lastSave = window._lastSnapSave[snapKey] || 0;
+  if(Date.now() - lastSave > 60000){
+   window._lastSnapSave[snapKey] = Date.now();
+   fetch(FIREBASE_URL + '/weekly_report_snapshots/' + weekKey + '/' + f + '_' + pf + '.json', {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+     weekStart: weekKey,
+     weekLabel: weekLabel,
+     filter: f,
+     prodFilter: pf,
+     savedAt: new Date().toISOString(),
+     savedBy: DEVICE_NAME,
+     html: h
+    })
+   }).catch(function(){});
+  }
+ }
+
+ // ── Snapshot load (past week only) ──
+ // If a snapshot exists for the requested week, display it instead of the
+ // reconstructed view. Snapshot wins when available because it's accurate.
+ if(!isCurrentWeek){
+  fetch(FIREBASE_URL + '/weekly_report_snapshots/' + weekKey + '/' + f + '_' + pf + '.json').then(function(r){return r.json()}).then(function(snap){
+   if(snap && snap.html){
+    var snapBanner = '<div style="background:rgba(108,52,131,0.12);border-left:4px solid #6c3483;padding:10px 14px;margin-bottom:12px;border-radius:4px;font-size:13px">';
+    snapBanner += '<b style="color:#6c3483">📸 Snapshot: '+weekLabel+'</b> · saved '+new Date(snap.savedAt).toLocaleString()+' from '+(snap.savedBy||'?');
+    snapBanner += '<br><span style="font-size:11px;color:var(--muted)">Exact view from when the report was generated. </span>';
+    snapBanner += '<button onclick="reportWeekStart=\'\';genReport()" style="margin-left:10px;background:none;border:1px solid #6c3483;color:#6c3483;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">← Back to current week</button>';
+    snapBanner += '</div>';
+    $1('#reportArea').innerHTML = snapBanner + snap.html;
+   }
+  }).catch(function(){});
+ }
 }
 
 function openReportMail(){

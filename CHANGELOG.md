@@ -2,11 +2,32 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.13.1` · Updated 2026-05-03
+> **Current version:** `v1.14.0` · Updated 2026-05-03
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
 
 ---
+
+## v1.14.0 — 2026-05-03 — Past Manager Weekly Reports + snapshot archive
+
+You can now re-run Manager Weekly Reports for past weeks. Two-tier approach:
+
+**Phase 1 — Live reconstruction (works for past weeks immediately):**
+- Refactored `genReport(weekStartYMDArg)` to accept an optional Friday date
+- Added "📅 Week:" dropdown above the report — last 12 weeks selectable
+- Selecting a past week filters all metrics (cases, calls, action items, etc.) to that Friday–Thursday range
+- Amber banner warns that values reflect current case statuses, not point-in-time
+
+**Phase 2 — Snapshot archive (perfect fidelity going forward):**
+- Every time you view the current week's report, an exact HTML snapshot auto-saves to Firebase under `weekly_report_snapshots/<friday-date>/<filter>_<prodfilter>.json`
+- Throttled to 1 save per minute per filter combo to avoid hammering Firebase
+- When you re-view a past week, the snapshot is fetched and replaces the reconstructed view automatically (purple banner confirms snapshot is showing)
+- Falls back to reconstruction if no snapshot exists for that week (weeks before v1.14.0 deployed)
+
+**UX details:**
+- Default selection: current week (no behavior change for normal use)
+- Past-week banner shows weeks-ago label ("last week", "3 weeks ago")
+- "← Back to current week" button on banners for quick return
 
 ## v1.13.1 — 2026-05-03 — Phone auto-rescue + manual Sync button
 
