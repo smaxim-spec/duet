@@ -2,11 +2,48 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.12.3` · Updated 2026-04-30
+> **Current version:** `v1.13.0` · Updated 2026-05-03
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
 
 ---
+
+## v1.13.0 — 2026-05-03 — Phone read-mostly architecture
+
+Desktop is now the **source of truth**. Phone is read-mostly with a limited capture inbox. This eliminates the entire class of cross-device merge bugs that plagued v1.11.x and v1.12.x (action items appearing on wrong leads, deleted items coming back, lead names getting swapped, etc.).
+
+**Phone behavior:**
+- Phone never pushes the full `leads` or `appointments` arrays to Firebase — `saveLeads()` and `saveAppts()` early-return on phone
+- **"Add Lead" on phone** → writes ONLY the new lead to `/phone_inbox_leads` (Firebase POST = append-only)
+- **"Schedule Appointment" on phone** → writes ONLY the new appointment to `/phone_inbox_appts`
+- Other phone edits (action items, stage changes, notes) update local view for the session but do NOT sync — replaced by cloud truth on next pull
+- Phone shows "📱 Read-mostly" badge in version footer
+- Phone's `firebasePushAll` button now disabled (was: clobbered cloud with phone's view)
+
+**Desktop behavior:**
+- Same as before, plus on each load: `ingestPhoneInbox()` runs after Firebase pull
+- For each new lead/appointment in the phone inbox: dedup, append to main array, push merged result to cloud, clear inbox
+- Toast appears: "📱 Ingested N leads/appointments from phone"
+
+**What this kills (gone forever):**
+- ❌ Phone overwriting desktop's edits
+- ❌ ID collisions when devices are offline
+- ❌ Action items appearing on wrong leads
+- ❌ Lead names getting swapped on push (Peter Nelson → Jason Massey)
+- ❌ Deleted items coming back via stale push
+- ❌ Coach Journal "phantom days missed" on other device
+- ❌ Most of the v1.12.x merge complexity (deletion-aware logic still in place but largely unnecessary now with single writer)
+
+**What you give up on phone:**
+- Marking action items done in the field (do on desktop)
+- Editing notes / stage from phone (do on desktop)
+- Calley pushes from phone (was already desktop-only)
+
+**What you keep on phone:**
+- Full read access to all leads, appointments, dashboard, action items, journal, reports
+- Add new lead on the go ✅
+- Schedule appointment on the go ✅
+- Tap-to-call any lead ✅
 
 ## v1.12.3 — 2026-04-30 — Pre-push verification for Won leads
 

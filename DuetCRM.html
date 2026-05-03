@@ -313,9 +313,18 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.12.3';
-var APP_BUILD_DATE = '2026-04-30';
+var APP_VERSION = 'v1.13.0';
+var APP_BUILD_DATE = '2026-05-03';
 var CHANGELOG = [
+ {ver:'v1.13.0', date:'2026-05-03', notes:[
+  'ARCHITECTURE: Desktop is now the source of truth. Phone is read-mostly.',
+  'Phone never pushes the full leads/appointments arrays to Firebase — eliminates the entire class of cross-device merge bugs we hit through v1.12.x',
+  'Phone "Add Lead" → writes to /phone_inbox_leads (append-only); desktop ingests on next load',
+  'Phone "Schedule Appointment" → writes to /phone_inbox_appts; desktop ingests on next load',
+  'Other phone edits (action items, stage changes, notes) save locally for the session but do not sync — they\'ll be replaced by cloud truth on next pull',
+  'Phone shows "📱 Read-mostly" badge in version footer',
+  'Phone\'s firebasePushAll button is disabled (was: pushed everything to cloud)'
+ ]},
  {ver:'v1.12.3', date:'2026-04-30', notes:[
   'Pre-push verification when marking a lead Won: if Agent / Premium / Product is blank, prompts you to fill in before pushing to DuetBooks',
   'No prompt at all when all 3 fields are filled — zero friction in the common case',
@@ -411,6 +420,11 @@ var CHANGELOG = [
 
 var FIREBASE_URL = 'https://duet-crm-default-rtdb.firebaseio.com';
 var DEVICE_NAME = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'Phone' : 'Laptop';
+// As of v1.13.0: Desktop is the source of truth. Phone is read-mostly with a
+// limited capture inbox (new leads, new appointments). Phone never pushes the
+// full leads/appointments arrays to Firebase — that path was the source of
+// every cross-device merge bug we hit through v1.12.x.
+function isPhone(){ return DEVICE_NAME === 'Phone'; }
 var _fbSyncTimer = null;
 var _fbSyncing = false;
 var _fbSuppressSync = false;
@@ -708,6 +722,10 @@ function firebaseLoadAll(callback){
     debouncedFirebaseSync('appointments');
    }, 2000);
   }
+  // Desktop only: ingest the phone inbox (new leads/appointments captured on phone)
+  if(!isPhone()){
+   setTimeout(ingestPhoneInbox, 1500);
+  }
   if(callback) callback(pulled);
  }).catch(function(){
   _fbSuppressSync = false;
@@ -716,7 +734,99 @@ function firebaseLoadAll(callback){
  });
 }
 
+// ── PHONE INBOX INGEST (desktop only) ──
+// Phone captures new leads + appointments to Firebase paths /phone_inbox_leads
+// and /phone_inbox_appts (Firebase auto-id object keys). Desktop pulls these on
+// load, dedupes, appends to main arrays, and clears the inbox. Phone never
+// writes to /leads or /appointments directly — eliminates merge conflicts.
+function ingestPhoneInbox(){
+ if(isPhone()) return;
+ // Leads inbox
+ fetch(FIREBASE_URL + '/phone_inbox_leads.json').then(function(r){
+  return r.json();
+ }).then(function(data){
+  if(!data) return;
+  var ingested = 0;
+  Object.keys(data).forEach(function(k){
+   var item = data[k];
+   if(!item) return;
+   // Dedup by phone (last 10 digits)
+   var phNorm = (item.phone || '').replace(/\D/g, '').slice(-10);
+   var existing = phNorm && leads.find(function(l){
+    return ((l.phone || '').replace(/\D/g, '').slice(-10)) === phNorm;
+   });
+   if(existing){
+    console.log('[PhoneInbox] Skipping duplicate lead:', item.name);
+    return;
+   }
+   // Assign a fresh ID and append
+   var newLead = Object.assign({}, item);
+   delete newLead._fromPhoneInbox;
+   delete newLead._capturedAt;
+   newLead.id = getNextLeadId();
+   leads.push(newLead);
+   ingested++;
+   console.log('[PhoneInbox] Ingested lead:', newLead.name);
+  });
+  if(ingested > 0){
+   saveLeads(); // desktop pushes the merged array
+   showToast('📱 Ingested ' + ingested + ' lead' + (ingested>1?'s':'') + ' from phone', 4000);
+   try { renderCRM(); } catch(e){}
+  }
+  // Clear inbox after successful ingest
+  fetch(FIREBASE_URL + '/phone_inbox_leads.json', {method: 'DELETE'});
+ }).catch(function(e){ console.log('[PhoneInbox] Lead ingest error:', e); });
+
+ // Appointments inbox
+ fetch(FIREBASE_URL + '/phone_inbox_appts.json').then(function(r){
+  return r.json();
+ }).then(function(data){
+  if(!data) return;
+  var ingested = 0;
+  Object.keys(data).forEach(function(k){
+   var item = data[k];
+   if(!item) return;
+   // Dedup by leadId+date+time slot
+   var slotKey = (item.leadId||'') + '_' + (item.date||'') + '_' + (item.time||'');
+   var existing = appointments.find(function(a){
+    return ((a.leadId||'') + '_' + (a.date||'') + '_' + (a.time||'')) === slotKey;
+   });
+   if(existing){
+    console.log('[PhoneInbox] Skipping duplicate appt:', item.clientName, item.date, item.time);
+    return;
+   }
+   var newAppt = Object.assign({}, item);
+   delete newAppt._capturedAt;
+   delete newAppt.leadName;
+   delete newAppt.leadPhone;
+   newAppt.id = nextApptId++;
+   appointments.push(newAppt);
+   ingested++;
+   // Update the matching lead's meeting fields
+   var matchingLead = leads.find(function(l){ return l.id === item.leadId; });
+   if(matchingLead){
+    matchingLead.meetingDate = item.date;
+    matchingLead.meetingTime = item.time;
+    matchingLead.meetingType = item.type;
+    if(matchingLead.stage !== 'meeting_set') matchingLead.stage = 'meeting_set';
+   }
+  });
+  if(ingested > 0){
+   saveAppts();
+   saveLeads();
+   showToast('📱 Ingested ' + ingested + ' appointment' + (ingested>1?'s':'') + ' from phone', 4000);
+   try { renderCRM(); } catch(e){}
+  }
+  fetch(FIREBASE_URL + '/phone_inbox_appts.json', {method: 'DELETE'});
+ }).catch(function(e){ console.log('[PhoneInbox] Appt ingest error:', e); });
+}
+
 function firebasePushAll(){
+ // Phone is read-mostly — never push the full data set from phone.
+ if(isPhone()){
+  showToast('📱 Phone is read-mostly. Use desktop to push data to cloud.', 4000);
+  return;
+ }
  if(!confirm('Push ALL local data to Firebase? This overwrites cloud data.')) return;
  _fbSyncing = true;
  updateFbStatus('syncing');
@@ -1121,6 +1231,10 @@ var nextLeadId = leads.length > 0 ? Math.max.apply(null, leads.map(function(l){r
 
 function saveLeads(){
  try { localStorage.setItem('salestracker_leads', JSON.stringify(leads)); } catch(e){}
+ // Phone never pushes the leads array — desktop is source of truth. Phone-side
+ // edits live in localStorage only and disappear on next pull from cloud.
+ // For NEW lead capture from phone, use addLeadFromPhoneInbox() instead.
+ if(isPhone()) return;
  debouncedFirebaseSync('leads');
 }
 
@@ -1145,6 +1259,8 @@ try { leads.forEach(function(l){ (l.actionItems||[]).forEach(function(ai){ if(ai
 
 function saveAppts(){
  try { localStorage.setItem('salestracker_appts', JSON.stringify(appointments)); } catch(e){}
+ // Same as saveLeads — phone never pushes the appointments array.
+ if(isPhone()) return;
  debouncedFirebaseSync('appointments');
 }
 
@@ -2204,7 +2320,7 @@ function openSettingsModal(){
  h += '<div style="font-size:10px;color:var(--muted);margin-top:4px">Get your token from the Calley Web Panel → Settings → API. Stored locally, never sent to Firebase.</div>';
  h += '<hr style="margin:16px 0;border:none;border-top:1px solid #eee">';
  h += '<div style="display:flex;justify-content:space-between;align-items:center">';
- h += '<div style="font-size:11px;color:var(--muted)"><strong style="color:var(--pri)">'+APP_VERSION+'</strong> &middot; Updated '+APP_BUILD_DATE+'</div>';
+ h += '<div style="font-size:11px;color:var(--muted)"><strong style="color:var(--pri)">'+APP_VERSION+'</strong> &middot; Updated '+APP_BUILD_DATE+(isPhone()?' &middot; <span style="color:var(--amb)">📱 Read-mostly</span>':'')+'</div>';
  h += '<button class="btn btn-outline btn-sm" onclick="closeSettingsModal();showChangelog()">View Changelog</button>';
  h += '</div>';
  document.getElementById('settings_content').innerHTML = h;
@@ -3981,6 +4097,26 @@ function addLead(name, phone, source, interest, agentName, email, age, notes){
   meetingType: '',
   meetingTime: ''
  };
+ // Phone path: write to phone_inbox_leads (POST = Firebase auto-id, append-only)
+ // so desktop ingests on next load. Local view shows the lead immediately;
+ // it'll get a permanent id when desktop ingests + pushes back.
+ if(isPhone()){
+  lead._fromPhoneInbox = true;
+  leads.push(lead);
+  try { localStorage.setItem('salestracker_leads', JSON.stringify(leads)); } catch(e){}
+  fetch(FIREBASE_URL + '/phone_inbox_leads.json', {
+   method: 'POST',
+   headers: {'Content-Type': 'application/json'},
+   body: JSON.stringify(Object.assign({}, lead, {_capturedAt: new Date().toISOString()}))
+  }).then(function(r){
+   if(r.ok) showToast('📱 ' + lead.name + ' added — will sync to laptop on next load', 4000);
+   else showToast('⚠️ Add failed — try again from desktop', 4000);
+  }).catch(function(){
+   showToast('⚠️ Offline — lead saved locally only', 4000);
+  });
+  return lead;
+ }
+ // Desktop path: normal flow
  leads.push(lead);
  saveLeads();
  return lead;
@@ -4436,8 +4572,7 @@ function scheduleAppt(leadId){
  lead.meetingType = type;
  lead.stage = 'meeting_set';
 
- // Save appointment
- appointments.push({
+ var appt = {
   id: nextApptId++,
   leadId: leadId,
   clientName: lead.name,
@@ -4447,8 +4582,30 @@ function scheduleAppt(leadId){
   location: loc,
   interest: lead.interest,
   notes: ''
- });
- saveAppts();
+ };
+
+ // Phone path: write the appointment to phone_inbox_appts so desktop ingests it.
+ // The lead-side fields (meetingDate/Time/Type, stage) won't sync — desktop will
+ // pick those up when it processes the inbox entry on next load.
+ if(isPhone()){
+  appointments.push(appt);
+  try { localStorage.setItem('salestracker_appts', JSON.stringify(appointments)); } catch(e){}
+  fetch(FIREBASE_URL + '/phone_inbox_appts.json', {
+   method: 'POST',
+   headers: {'Content-Type': 'application/json'},
+   body: JSON.stringify(Object.assign({}, appt, {
+    leadName: lead.name,
+    leadPhone: lead.phone,
+    _capturedAt: new Date().toISOString()
+   }))
+  }).then(function(r){
+   if(r.ok) showToast('📱 Appt for ' + lead.name + ' captured — desktop will sync', 4000);
+  });
+ } else {
+  // Desktop: normal flow
+  appointments.push(appt);
+  saveAppts();
+ }
 
  // Log meeting to history
  if(!lead.callLog) lead.callLog = [];
