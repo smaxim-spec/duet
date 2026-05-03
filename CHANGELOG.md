@@ -2,11 +2,42 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.14.0` · Updated 2026-05-03
+> **Current version:** `v1.15.0` · Updated 2026-05-03
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
 
 ---
+
+## v1.15.0 — 2026-05-03 — Phone mobile-first UI
+
+The phone app was getting clunky — too many tabs, dashboards, and tools that don't matter when you're in the field. Stripped it down to what you actually use:
+
+**Phone home screen now shows ONLY:**
+- **+ Add Lead** button (prominent green)
+- **📅 Schedule** button (prominent purple)
+- **🔍 Search** bar with live autocomplete (tap result → lead detail)
+- **Today's Appointments** (collapsible card, with type/location)
+- **📞 Call Queue (top 10)** — prioritized, with **tap-to-call** buttons
+- **📌 Action Items** — read-only display (no checkboxes / no delete)
+- **📓 Coach Journal** entry button (red/green based on today's status)
+- **🔄 Sync** button (escape hatch, kept from v1.13.1)
+
+**Bottom nav simplified** to just **CRM** and **Book** — no Reports tab, no More menu.
+
+**Lead detail on phone** — action item checkboxes/delete buttons hidden. Bullets shown instead. Tap-to-call (`tel:` links), email links, and Schedule Appt button all still work.
+
+**Hidden from phone entirely:**
+- Reports tab (and Manager Weekly Report)
+- Funnel Health tab
+- Year Summary tab
+- CD → Annuity tool
+- Annuity vs Annuity tool
+- S&P vs Annuity tool
+- Bulk Add
+- Agents management
+- Year toggle (2025/2026)
+
+Everything still accessible on desktop unchanged.
 
 ## v1.14.0 — 2026-05-03 — Past Manager Weekly Reports + snapshot archive
 

@@ -313,9 +313,17 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.14.0';
+var APP_VERSION = 'v1.15.0';
 var APP_BUILD_DATE = '2026-05-03';
 var CHANGELOG = [
+ {ver:'v1.15.0', date:'2026-05-03', notes:[
+  'PHONE UI overhauled: stripped down to mobile-first essentials',
+  'Phone home shows: + Add Lead button, 📅 Schedule button, search bar, today\'s appointments, top 10 prioritized call queue with tap-to-call, action items (read-only), Coach Journal',
+  'Bottom nav simplified to just CRM and Book (no more Reports / More menu on phone)',
+  'Phone hides: Reports, Funnel Health, Year Summary, all annuity/CD comparison tools, Bulk Add, Agents, year toggle',
+  'Lead detail on phone: action item checkboxes/delete buttons hidden (read-only). Tap-to-call and Schedule Appt still work.',
+  'Live search with autocomplete dropdown — tap to open lead'
+ ]},
  {ver:'v1.14.0', date:'2026-05-03', notes:[
   'NEW: Past Manager Weekly Reports — pick any of the last 12 weeks from the "📅 Week:" dropdown',
   'Past weeks reconstruct from current data (filtered to the week\'s date range) — banner explains the caveat',
@@ -6745,9 +6753,262 @@ function renderFunnelHealth(){
  $1('#p7').innerHTML = h;
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// PHONE MOBILE-FIRST UI (v1.15.0)
+// ══════════════════════════════════════════════════════════════════════
+// On phone, renderCRM() routes to renderPhoneApp() instead of the desktop
+// layout when crmView is 'queue' or empty. Lead detail and schedule views
+// reuse existing render functions but with isPhone() guards for read-only.
+
+function renderPhoneApp(){
+ var h = '';
+
+ // Compact header — just the version/sync, no h2 title (saves space)
+ h += '<div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;margin-bottom:10px">';
+ var _cjE = getCoachJournal();
+ var _cjNow = new Date();
+ var _cjToday = _cjNow.getFullYear()+'-'+String(_cjNow.getMonth()+1).padStart(2,'0')+'-'+String(_cjNow.getDate()).padStart(2,'0');
+ var _cjDone = _cjE.some(function(e){ return e.date && e.date.substring(0,10) === _cjToday; });
+ if(_cjDone){
+  h += '<button class="btn btn-sm" onclick="showCoachJournal()" style="background:var(--grn);color:#fff;border:none;font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer">✅ Journal</button>';
+ } else {
+  h += '<button class="btn btn-sm" onclick="showCoachJournal()" style="background:#e74c3c;color:#fff;border:none;font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;animation:cjPulse 2s infinite">🔴 Enter Journal</button>';
+ }
+ h += '<button class="btn btn-sm btn-outline" onclick="forceCloudSync()" style="font-size:11px;padding:6px 10px" title="Pull fresh from cloud">🔄</button>';
+ h += '</div>';
+
+ // Two big primary buttons: Add Lead + Schedule
+ h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
+ h += '<button onclick="phoneOpenAddLead()" style="background:var(--grn);color:#fff;border:none;padding:18px 12px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(39,174,96,0.3)">+ Add Lead</button>';
+ h += '<button onclick="phoneOpenSchedule()" style="background:var(--pri);color:#fff;border:none;padding:18px 12px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(83,74,183,0.3)">📅 Schedule</button>';
+ h += '</div>';
+
+ // Search bar — always visible
+ h += '<div style="margin-bottom:14px">';
+ h += '<input id="phoneSearch" type="search" placeholder="🔍 Search a client..." oninput="phoneRunSearch(this.value)" style="width:100%;padding:12px 14px;font-size:15px;border:1px solid var(--border);border-radius:8px;box-sizing:border-box">';
+ h += '<div id="phoneSearchResults" style="margin-top:6px"></div>';
+ h += '</div>';
+
+ // Daily summary — compact
+ var todayISO = (new Date()).toISOString().substring(0,10);
+ var todayAppts = (appointments || []).filter(function(a){ return a.date === todayISO; });
+ var totalActions = 0;
+ (leads || []).forEach(function(l){
+  (l.actionItems || []).forEach(function(ai){ if(!ai.done && ai.due && ai.due <= todayISO) totalActions++; });
+ });
+ h += '<div style="background:var(--ptint);padding:12px 14px;border-radius:10px;margin-bottom:12px">';
+ h += '<div style="font-size:16px;font-weight:700;color:var(--pri);margin-bottom:4px">Good '+ (function(){var hr=new Date().getHours(); return hr<12?'morning':hr<17?'afternoon':'evening';})() +', Steve!</div>';
+ h += '<div style="font-size:12px;color:var(--muted)">'+(new Date()).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})+'</div>';
+ h += '<div style="display:flex;gap:14px;margin-top:8px;font-size:13px">';
+ h += '<span>📞 <b>'+ todayAppts.length +'</b> appts</span>';
+ h += '<span>📌 <b>'+ totalActions +'</b> actions</span>';
+ h += '</div>';
+ h += '</div>';
+
+ // Today's appointments (collapsible)
+ if(todayAppts.length > 0){
+  h += '<div class="phone-card" style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">';
+  h += '<div style="font-weight:700;color:var(--pri);margin-bottom:8px">📅 Today\'s Appointments ('+todayAppts.length+')</div>';
+  todayAppts.sort(function(a,b){return (a.time||'').localeCompare(b.time||'')}).forEach(function(a){
+   var lead = (leads || []).find(function(l){return l.id === a.leadId});
+   var leadId = lead ? lead.id : '';
+   h += '<div onclick="'+(leadId?'phoneOpenLead('+leadId+')':'')+'" style="padding:8px 0;border-top:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center">';
+   h += '<div><b>'+ (a.time||'?') +'</b> · '+ escapeHtml(a.clientName || (lead?lead.name:'?')) +'</div>';
+   h += '<div style="font-size:11px;color:var(--muted)">'+ escapeHtml(a.type || '') +'</div>';
+   h += '</div>';
+  });
+  h += '</div>';
+ }
+
+ // Top 10 Call Queue (read from existing priority queue logic)
+ var queue = phoneBuildCallQueue();
+ var queueDisplay = queue.slice(0, 10);
+ h += '<div class="phone-card" style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">';
+ h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+ h += '<div style="font-weight:700;color:var(--pri)">📞 Call Queue (next '+ Math.min(10, queue.length) +')</div>';
+ if(queue.length > 10){
+  h += '<span style="font-size:11px;color:var(--muted)">'+ queue.length +' total</span>';
+ }
+ h += '</div>';
+ if(queueDisplay.length === 0){
+  h += '<div style="font-size:12px;color:var(--muted);text-align:center;padding:14px 0">Queue clear — all caught up! 🎉</div>';
+ } else {
+  queueDisplay.forEach(function(q){
+   var lead = q.lead;
+   var reason = q.reason || '';
+   var phNorm = (lead.phone || '').replace(/\D/g, '');
+   h += '<div style="padding:10px 0;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px">';
+   h += '<div onclick="phoneOpenLead('+ lead.id +')" style="flex:1;cursor:pointer;min-width:0">';
+   h += '<div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+ escapeHtml(lead.name || '?') +'</div>';
+   h += '<div style="font-size:11px;color:var(--muted)">'+ escapeHtml(reason) +'</div>';
+   h += '</div>';
+   if(phNorm){
+    h += '<a href="tel:'+ phNorm +'" style="background:var(--grn);color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;flex-shrink:0">📞 Call</a>';
+   }
+   h += '</div>';
+  });
+ }
+ h += '</div>';
+
+ // Action Items (read-only display)
+ var actionList = [];
+ (leads || []).forEach(function(l){
+  (l.actionItems || []).forEach(function(ai){
+   if(!ai.done && ai.due && ai.due <= todayISO){
+    actionList.push({lead: l, item: ai});
+   }
+  });
+ });
+ actionList.sort(function(a,b){ return (a.item.due||'').localeCompare(b.item.due||''); });
+ h += '<div class="phone-card" style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">';
+ h += '<div style="font-weight:700;color:var(--pri);margin-bottom:8px">📌 Action Items ('+ actionList.length +') <span style="font-size:11px;font-weight:400;color:var(--muted)">read-only</span></div>';
+ if(actionList.length === 0){
+  h += '<div style="font-size:12px;color:var(--muted);text-align:center;padding:8px 0">No action items due.</div>';
+ } else {
+  actionList.slice(0, 15).forEach(function(ai){
+   var overdue = ai.item.due < todayISO;
+   h += '<div onclick="phoneOpenLead('+ ai.lead.id +')" style="padding:8px 0;border-top:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;gap:8px;align-items:flex-start">';
+   h += '<div style="flex:1;min-width:0">';
+   h += '<div style="font-size:12px;color:var(--muted)">'+ escapeHtml(ai.lead.name || '?') +'</div>';
+   h += '<div style="font-size:13px;line-height:1.3">'+ escapeHtml(ai.item.text || '') +'</div>';
+   h += '</div>';
+   h += '<span style="font-size:10px;color:'+ (overdue?'#e74c3c':'var(--muted)') +';white-space:nowrap;font-weight:'+ (overdue?'700':'400') +'">'+ (overdue?'⚠ ':'') + ai.item.due +'</span>';
+   h += '</div>';
+  });
+  if(actionList.length > 15){
+   h += '<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">+'+ (actionList.length - 15) +' more (view on desktop)</div>';
+  }
+ }
+ h += '</div>';
+
+ // Footer hint
+ h += '<div style="text-align:center;font-size:10px;color:var(--muted);margin-top:14px;padding:8px">📱 Read-mostly mode · v'+ APP_VERSION.replace('v','') +' · Edits sync from desktop only</div>';
+
+ return h;
+}
+
+// Build a prioritized call queue for phone (top items first)
+// Mirrors the desktop's priority logic — uses existing helpers if available.
+function phoneBuildCallQueue(){
+ var todayISO = (new Date()).toISOString().substring(0,10);
+ var queue = [];
+ (leads || []).forEach(function(l){
+  if(!l) return;
+  if(l.stage === 'won' || l.stage === 'lost') return;
+  var lastCall = (l.callLog && l.callLog.length) ? l.callLog[l.callLog.length-1] : null;
+  var lastOutcome = lastCall ? (lastCall.outcome || '') : '';
+  if(lastOutcome === 'Bad #' || lastOutcome === 'Bad Number' || lastOutcome === 'Wrong Number') return;
+  var score = 0;
+  var reason = '';
+  // Hottest: meeting today/scheduled callback
+  if(l.meetingDate === todayISO){ score += 1000; reason = '📅 Meeting today'; }
+  else if(l.callbackDate && l.callbackDate <= todayISO){ score += 900; reason = '⏰ Callback due'; }
+  else if(l.stage === 'quoted'){ score += 800; reason = '💰 Quoted f/u'; }
+  else if(l.stage === 'meeting_set'){ score += 700; reason = '📅 Meeting follow-up'; }
+  else if(l.stage === 'connected'){ score += 600; reason = '🤝 Connected'; }
+  else if(l.stage === 'discovery'){ score += 500; reason = '🔍 Discovery'; }
+  else if(l.stage === 'attempting'){ score += 300; reason = '⏰ Attempting'; }
+  else if(l.stage === 'incubator'){ score += 100; reason = '🌱 Nurturing'; }
+  else if(l.stage === 'new'){ score += 200; reason = '🆕 New'; }
+  // Recency boost — leads not called recently rank higher
+  if(lastCall && lastCall.date){
+   var daysSinceCall = Math.floor((Date.now() - new Date(lastCall.date).getTime()) / 86400000);
+   if(daysSinceCall >= 3) score += daysSinceCall;
+  } else {
+   score += 50; // never called
+  }
+  queue.push({lead: l, score: score, reason: reason});
+ });
+ queue.sort(function(a,b){ return b.score - a.score; });
+ return queue;
+}
+
+// Phone helpers — open lead detail
+function phoneOpenLead(leadId){
+ crmView = 'lead';
+ selectedLeadId = leadId;
+ try { renderCRM(); } catch(e){}
+ window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+// Open Add Lead — focuses the existing client name input + scrolls to it
+function phoneOpenAddLead(){
+ var input = document.querySelector('#crm_client_name, input[id*="bulk_name"]');
+ // Add lead form is at the top of CRM panel
+ var leadForm = document.querySelector('input[name="name"], #crm_client_name');
+ if(leadForm){
+  leadForm.scrollIntoView({behavior:'smooth', block:'center'});
+  setTimeout(function(){ leadForm.focus(); }, 350);
+ } else {
+  // Fallback: prompt
+  var name = prompt('Lead name:');
+  if(!name) return;
+  var phone = prompt('Phone (optional):') || '';
+  addLead(name, phone, 'Self-Generated', 'Life Insurance', '', '', '', '');
+  try { renderCRM(); } catch(e){}
+ }
+}
+
+function phoneOpenSchedule(){
+ // Switch to schedule view
+ crmView = 'schedule';
+ try { renderCRM(); } catch(e){}
+ // Update bottom nav
+ var btns = document.querySelectorAll('.mobile-nav-btn');
+ btns.forEach(function(b){ b.classList.remove('active'); });
+ var b = document.getElementById('mnBook'); if(b) b.classList.add('active');
+}
+
+// Live search results dropdown
+function phoneRunSearch(q){
+ var resEl = document.getElementById('phoneSearchResults');
+ if(!resEl) return;
+ q = (q || '').trim().toLowerCase();
+ if(q.length < 2){ resEl.innerHTML = ''; return; }
+ var matches = (leads || []).filter(function(l){
+  return l && l.name && (l.name.toLowerCase().indexOf(q) >= 0 || (l.phone||'').replace(/\D/g,'').indexOf(q.replace(/\D/g,'')) >= 0);
+ }).slice(0, 8);
+ if(matches.length === 0){
+  resEl.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:var(--muted)">No matches</div>';
+  return;
+ }
+ var rh = '<div style="background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px;box-shadow:0 2px 6px rgba(0,0,0,0.06)">';
+ matches.forEach(function(l){
+  rh += '<div onclick="phoneOpenLead('+l.id+')" style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer">';
+  rh += '<div style="font-size:14px;font-weight:600">'+ escapeHtml(l.name) +'</div>';
+  rh += '<div style="font-size:11px;color:var(--muted)">'+ escapeHtml(l.phone||'no phone') +' · '+ escapeHtml(l.stage||'?') +'</div>';
+  rh += '</div>';
+ });
+ rh += '</div>';
+ resEl.innerHTML = rh;
+}
+
 function renderCRM(){
  var el = document.querySelector('#p6');
  if(!el) return;
+
+ // Phone path: if isPhone, route based on crmView
+ if(isPhone()){
+  var phh = '';
+  if(!crmView || crmView === 'queue' || crmView === 'all'){
+   phh = renderPhoneApp();
+  } else if(crmView === 'lead'){
+   // Reuse existing lead detail; phone-mode flag will hide editable controls
+   phh = '<div style="margin-bottom:10px"><button onclick="crmView=\'queue\';renderCRM()" style="background:var(--ptint);border:none;color:var(--pri);padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer">← Back to Home</button></div>';
+   phh += renderLeadDetail();
+  } else if(crmView === 'schedule'){
+   phh = '<div style="margin-bottom:10px"><button onclick="crmView=\'queue\';renderCRM()" style="background:var(--ptint);border:none;color:var(--pri);padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer">← Back to Home</button></div>';
+   phh += renderScheduleView();
+  } else {
+   // Other views (bulk, agents, all) not supported on phone — fall back to home
+   crmView = 'queue';
+   phh = renderPhoneApp();
+  }
+  el.innerHTML = phh;
+  return;
+ }
+
+ // Desktop path (unchanged)
  var h = '';
 
  // Header with view toggles
@@ -8055,13 +8316,16 @@ function renderLeadDetail(){
  h += '<span id="ai_'+lead.id+'_arrow" style="font-size:14px;color:var(--muted);transition:transform .2s">▼</span>';
  h += '</div>';
  h += '<div id="ai_'+lead.id+'" style="margin-top:10px">';
- // Add action item form
- h += '<div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;align-items:end">';
- h += '<input id="ai_text_'+lead.id+'" placeholder="New action item..." style="flex:1;min-width:150px;font-size:11px;padding:4px 6px">';
- h += '<input type="date" id="ai_due_'+lead.id+'" value="'+toYMD(new Date())+'" style="font-size:11px;padding:4px 6px;width:auto">';
- h += '<button class="btn btn-pri btn-sm" onclick="addActionItemToLead('+lead.id+')" style="font-size:10px;padding:2px 8px;white-space:nowrap">+ Add</button>';
- h += '<button class="btn btn-sm" onclick="showEmailImportModal('+lead.id+')" style="font-size:10px;padding:2px 8px;white-space:nowrap;background:#fff;border:1px solid var(--pri);color:var(--pri)" title="Import action item from Gmail (laptop only, requires duet server)">📧 From Email</button>';
- h += '</div>';
+ var _phoneAI = isPhone();
+ // Add action item form — desktop only (phone is read-mostly per v1.13.0)
+ if(!_phoneAI){
+  h += '<div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;align-items:end">';
+  h += '<input id="ai_text_'+lead.id+'" placeholder="New action item..." style="flex:1;min-width:150px;font-size:11px;padding:4px 6px">';
+  h += '<input type="date" id="ai_due_'+lead.id+'" value="'+toYMD(new Date())+'" style="font-size:11px;padding:4px 6px;width:auto">';
+  h += '<button class="btn btn-pri btn-sm" onclick="addActionItemToLead('+lead.id+')" style="font-size:10px;padding:2px 8px;white-space:nowrap">+ Add</button>';
+  h += '<button class="btn btn-sm" onclick="showEmailImportModal('+lead.id+')" style="font-size:10px;padding:2px 8px;white-space:nowrap;background:#fff;border:1px solid var(--pri);color:var(--pri)" title="Import action item from Gmail (laptop only, requires duet server)">📧 From Email</button>';
+  h += '</div>';
+ }
  // Open items
  if(openAI.length === 0 && doneAI.length === 0){
   h += '<p style="color:var(--muted);font-size:12px">No action items yet.</p>';
@@ -8070,10 +8334,17 @@ function renderLeadDetail(){
   var overdue = ai.due && ai.due < toYMD(new Date());
   var dueColor = overdue ? '#e74c3c' : 'var(--muted)';
   h += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">';
-  h += '<input type="checkbox" onclick="toggleActionItem('+lead.id+','+ai.id+')" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">';
+  if(_phoneAI){
+   // Phone: bullet, no checkbox, no delete (read-only display)
+   h += '<span style="width:16px;flex-shrink:0;color:var(--muted)">•</span>';
+  } else {
+   h += '<input type="checkbox" onclick="toggleActionItem('+lead.id+','+ai.id+')" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">';
+  }
   h += '<span style="flex:1;font-size:12px">'+ai.text+'</span>';
   if(ai.due) h += '<span style="font-size:10px;color:'+dueColor+';font-weight:'+(overdue?'700':'400')+';white-space:nowrap">'+(overdue?'⚠ ':'')+'Due '+ai.due+'</span>';
-  h += '<button onclick="deleteActionItem('+lead.id+','+ai.id+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:14px;padding:0 4px" title="Delete">×</button>';
+  if(!_phoneAI){
+   h += '<button onclick="deleteActionItem('+lead.id+','+ai.id+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:14px;padding:0 4px" title="Delete">×</button>';
+  }
   h += '</div>';
  });
  // Completed items (collapsed)
@@ -8082,9 +8353,15 @@ function renderLeadDetail(){
   h += '<div id="ai_done_'+lead.id+'" style="display:none;margin-top:4px">';
   doneAI.forEach(function(ai){
    h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;opacity:0.5">';
-   h += '<input type="checkbox" checked onclick="toggleActionItem('+lead.id+','+ai.id+')" style="width:14px;height:14px;cursor:pointer;flex-shrink:0">';
+   if(_phoneAI){
+    h += '<span style="width:14px;flex-shrink:0;color:var(--grn)">✓</span>';
+   } else {
+    h += '<input type="checkbox" checked onclick="toggleActionItem('+lead.id+','+ai.id+')" style="width:14px;height:14px;cursor:pointer;flex-shrink:0">';
+   }
    h += '<span style="flex:1;font-size:11px;text-decoration:line-through">'+ai.text+'</span>';
-   h += '<button onclick="deleteActionItem('+lead.id+','+ai.id+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:14px;padding:0 4px" title="Delete">×</button>';
+   if(!_phoneAI){
+    h += '<button onclick="deleteActionItem('+lead.id+','+ai.id+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:14px;padding:0 4px" title="Delete">×</button>';
+   }
    h += '</div>';
   });
   h += '</div></div>';
@@ -11179,53 +11456,40 @@ setInterval(function(){
 <button class="qb-fab" onclick="openQuickBook()" title="Quick Book Meeting">📅</button>
 <div id="qb_overlay" class="qb-overlay" onclick="closeQuickBook()"></div>
 <div id="qb_modal" class="qb-modal"><div id="qb_content"></div></div>
-<!-- Mobile Bottom Nav -->
+<!-- Mobile Bottom Nav (v1.15.0: stripped down to just CRM + Book) -->
 <nav class="mobile-nav" id="mobileNav">
- <button class="mobile-nav-btn active" onclick="mobileShowTab(6)" id="mnCrm"><span class="mn-icon">📞</span>CRM</button>
- <button class="mobile-nav-btn" onclick="mobileShowTab(5)" id="mnReports"><span class="mn-icon">📊</span>Reports</button>
- <button class="mobile-nav-btn" onclick="openQuickBook();closeMobileMore()" id="mnBook"><span class="mn-icon">📅</span>Book</button>
- <button class="mobile-nav-btn" onclick="toggleMobileMore()" id="mnMore"><span class="mn-icon">☰</span>More</button>
+ <button class="mobile-nav-btn active" onclick="phoneNavCRM()" id="mnCrm"><span class="mn-icon">📞</span>CRM</button>
+ <button class="mobile-nav-btn" onclick="phoneNavBook()" id="mnBook"><span class="mn-icon">📅</span>Book</button>
 </nav>
-
-<!-- Mobile More Menu -->
-<div class="mobile-more-menu" id="mobileMoreMenu">
- <div class="mobile-more-item" onclick="mobileShowTab(7)"><span class="mm-icon">📈</span>Funnel Health</div>
- <div class="mobile-more-item" onclick="mobileShowTab(0)"><span class="mm-icon">📋</span>Year Summary</div>
- <div class="mobile-more-item" onclick="mobileShowTab(1)"><span class="mm-icon">🎯</span>Dashboard</div>
- <div class="mobile-more-item" onclick="mobileShowTab(8)"><span class="mm-icon">🔄</span>CD → Annuity</div>
- <div class="mobile-more-item" onclick="mobileShowTab(9)"><span class="mm-icon">⚖️</span>Annuity vs Annuity</div>
- <div class="mobile-more-item" onclick="mobileShowTab(10)"><span class="mm-icon">📊</span>S&P vs Annuity</div>
- <div class="mobile-more-item" onclick="toggleDarkMode();closeMobileMore()"><span class="mm-icon" id="mobileDarkIcon">🌙</span><span id="mobileDarkLabel">Dark Mode</span></div>
- <div class="mobile-more-item" onclick="openSettingsModal();closeMobileMore()"><span class="mm-icon">⚙️</span>Settings</div>
-</div>
 
 <script>
 function mobileShowTab(n){
- closeMobileMore();
+ // Legacy — kept for any old call sites. v1.15.0 phone uses phoneNavCRM/Book instead.
  showTab(n);
- // Update active state on mobile nav
  var btns = document.querySelectorAll('.mobile-nav-btn');
  btns.forEach(function(b){ b.classList.remove('active'); });
- if(n===6) document.getElementById('mnCrm').classList.add('active');
- else if(n===5) document.getElementById('mnReports').classList.add('active');
- else document.getElementById('mnMore').classList.add('active');
+ if(n===6){ var b1 = document.getElementById('mnCrm'); if(b1) b1.classList.add('active'); }
 }
-function toggleMobileMore(){
- var menu = document.getElementById('mobileMoreMenu');
- menu.classList.toggle('show');
+function closeMobileMore(){ /* no-op v1.15.0 — More menu removed */ }
+
+// v1.15.0: phone-only nav helpers. Phone home = CRM (call queue or detail).
+// Book = the Schedule view.
+function phoneNavCRM(){
+ showTab(6);
+ crmView = (crmView === 'lead') ? 'lead' : 'queue';
+ try { renderCRM(); } catch(e){}
+ var btns = document.querySelectorAll('.mobile-nav-btn');
+ btns.forEach(function(b){ b.classList.remove('active'); });
+ var b = document.getElementById('mnCrm'); if(b) b.classList.add('active');
 }
-function closeMobileMore(){
- var menu = document.getElementById('mobileMoreMenu');
- if(menu) menu.classList.remove('show');
+function phoneNavBook(){
+ showTab(6);
+ crmView = 'schedule';
+ try { renderCRM(); } catch(e){}
+ var btns = document.querySelectorAll('.mobile-nav-btn');
+ btns.forEach(function(b){ b.classList.remove('active'); });
+ var b = document.getElementById('mnBook'); if(b) b.classList.add('active');
 }
-// Close more menu when tapping outside
-document.addEventListener('click', function(e){
- var menu = document.getElementById('mobileMoreMenu');
- var btn = document.getElementById('mnMore');
- if(menu && menu.classList.contains('show') && !menu.contains(e.target) && !btn.contains(e.target)){
-  menu.classList.remove('show');
- }
-});
 
 // ══════════════════════════════════
 // Feedback System
