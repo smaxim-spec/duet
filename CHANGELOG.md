@@ -2,11 +2,19 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.13.0` · Updated 2026-05-03
+> **Current version:** `v1.13.1` · Updated 2026-05-03
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
 
 ---
+
+## v1.13.1 — 2026-05-03 — Phone auto-rescue + manual Sync button
+
+Hot fix shipped same day as v1.13.0. After v1.13.0 deployed, phone was showing only 114 of 471 leads — the long-standing `firebaseLoadAll` merge bug combined with iOS Safari localStorage quota limits caused partial loads on phone.
+
+- **Phone auto-rescue:** on every load, phone now silently force-pulls fresh data from each Firebase path (leads, appointments, agents, pipelines, periods, settings) and replaces in-memory + localStorage. Bypasses the buggy merge logic entirely.
+- **NEW "🔄 Sync" button** in CRM header (both devices): one-tap manual escape hatch when anything looks out of sync. Shows "🔄 Synced from cloud · N leads, M appts" toast.
+- **`forceCloudSync()`** function added — direct-fetches each Firebase path. Tolerates localStorage quota errors (continues with in-memory only).
 
 ## v1.13.0 — 2026-05-03 — Phone read-mostly architecture
 

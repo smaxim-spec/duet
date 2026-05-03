@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.13.0';
+var APP_VERSION = 'v1.13.1';
 var APP_BUILD_DATE = '2026-05-03';
 var CHANGELOG = [
+ {ver:'v1.13.1', date:'2026-05-03', notes:[
+  'Phone auto-rescue: on every load, phone now force-pulls fresh data from Firebase, bypassing the firebaseLoadAll merge bug + localStorage quota issues that gave partial data',
+  'NEW "🔄 Sync" button in CRM header (both devices): manually pull fresh from cloud — escape hatch if anything ever looks out of sync',
+  'forceCloudSync() function: direct-fetches each Firebase path, replaces in-memory + localStorage with cloud truth'
+ ]},
  {ver:'v1.13.0', date:'2026-05-03', notes:[
   'ARCHITECTURE: Desktop is now the source of truth. Phone is read-mostly.',
   'Phone never pushes the full leads/appointments arrays to Firebase — eliminates the entire class of cross-device merge bugs we hit through v1.12.x',
@@ -456,6 +461,70 @@ function fbLoad(key){
 
 function fbLoadAll(){
  return fetch(FIREBASE_URL+'/.json').then(function(r){return r.json()});
+}
+
+// ── FORCE CLOUD SYNC (manual escape hatch + phone auto-rescue) ──
+// Bypasses the buggy firebaseLoadAll merge logic. Direct-fetches each Firebase
+// path and replaces in-memory + localStorage with cloud truth. Used:
+//  - Manually via the "🔄 Sync from Cloud" button (any device)
+//  - Automatically on phone load (since phone is read-mostly, cloud=truth)
+function forceCloudSync(opts){
+ opts = opts || {};
+ var silent = opts.silent;
+ if(!silent) updateFbStatus('syncing');
+ var paths = [
+  ['leads', 'salestracker_leads', function(v){ leads = v; }],
+  ['appointments', 'salestracker_appts', function(v){ appointments = v; }],
+  ['agents', 'salestracker_agents', function(v){ splitAgents = v; }],
+  ['pipeline_2025', 'salestracker_pl_2025', function(v){ pl2025 = v; }],
+  ['pipeline_2026', 'salestracker_pl_2026', function(v){ pl2026 = v; }],
+  ['periods_2025', 'salestracker_pe_2025', function(v){ pe2025 = v; }],
+  ['periods_2026', 'salestracker_pe_2026', function(v){ pe2026 = v; }],
+  ['settings', 'salestracker_settings', function(v){ settings = Object.assign({}, settings, v); }]
+ ];
+ return Promise.all(paths.map(function(p){
+  return fetch(FIREBASE_URL+'/'+p[0]+'.json').then(function(r){return r.json()}).then(function(d){
+   if(!d) return null;
+   var data = d.data;
+   if(data === undefined) return null;
+   try { localStorage.setItem(p[1], JSON.stringify(data)); } catch(e){
+    // Quota exceeded on phone — proceed with in-memory only; partial localStorage OK
+    console.warn('localStorage write failed for '+p[1]+' (likely quota); using in-memory only');
+   }
+   if(d.updated) localStorage.setItem('fb_ts_'+p[0], d.updated);
+   p[2](data);
+   return p[0]+': '+(Array.isArray(data)?data.length:'object');
+  });
+ })).then(function(results){
+  // Refresh derived globals
+  pl = activeYear === 2026 ? pl2026 : pl2025;
+  pe = activeYear === 2026 ? pe2026 : pe2025;
+  try {
+   nextLeadId = leads.length > 0 ? Math.max.apply(null, leads.map(function(l){return l.id||0}).concat([0])) + 1 : 1;
+   nextApptId = appointments.length > 0 ? Math.max.apply(null, appointments.map(function(a){return a.id||0}).concat([0])) + 1 : 1;
+  } catch(e){}
+  if(!silent){
+   updateFbStatus('synced');
+   showToast('🔄 Synced from cloud · '+leads.length+' leads, '+appointments.length+' appts', 4000);
+  }
+  try { renderCRM(); } catch(e){}
+  return results;
+ }).catch(function(e){
+  if(!silent){
+   updateFbStatus('offline');
+   showToast('⚠️ Sync failed: '+(e.message||e), 4000);
+  }
+  console.error('forceCloudSync error:', e);
+ });
+}
+
+// Phone auto-rescue: on every load, force-pull from cloud since phone is read-mostly.
+// This bypasses the localStorage-quota / firebaseLoadAll bugs that have been giving us
+// partial data on the phone. Runs once after the rest of the app initializes.
+if(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)){
+ setTimeout(function(){
+  forceCloudSync({silent: true});
+ }, 1500);
 }
 
 function debouncedFirebaseSync(key){
@@ -6593,6 +6662,8 @@ function renderCRM(){
  h += '<button class="btn btn-sm '+(crmView==='bulk'?'btn-amb':'btn-outline')+'" onclick="crmView=\'bulk\';renderCRM()">+ Bulk Add</button>';
  h += '<button class="btn btn-sm '+(crmView==='schedule'?'btn-pri':'btn-outline')+'" onclick="crmView=\'schedule\';renderCRM()">Schedule</button>';
  h += '<button class="btn btn-sm '+(crmView==='agents'?'btn-pri':'btn-outline')+'" onclick="crmView=\'agents\';renderCRM()">Agents</button>';
+ // Force Sync from Cloud — manual escape hatch for stale localStorage / firebaseLoadAll bugs
+ h += '<button class="btn btn-sm btn-outline" onclick="forceCloudSync()" style="font-size:10px;padding:3px 10px" title="Pull fresh data from Firebase (use if device looks out of sync)">🔄 Sync</button>';
  h += '</div></div>';
 
  if(crmView === 'queue') h += renderCallQueue();
