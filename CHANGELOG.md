@@ -2,11 +2,24 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.15.0` · Updated 2026-05-03
+> **Current version:** `v1.15.1` · Updated 2026-05-05
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
 
 ---
+
+## v1.15.1 — 2026-05-05 — Phone inbox ingest reliability fix
+
+Hot fix: phone-captured leads (added via the phone's "+ Add Lead" button) weren't reliably being ingested into the main `/leads` array on the laptop. Don McCoy was added from the phone twice but never appeared on the laptop.
+
+**Root cause:** `ingestPhoneInbox()` was only wired to `firebaseLoadAll`'s success callback. That function has the silent-fail merge bug we routed around in v1.13.1 — when it bails early, the ingest never runs.
+
+**Fix:**
+- `forceCloudSync()` (the 🔄 Sync button) now also triggers `ingestPhoneInbox()` after the pull
+- Desktop now auto-runs `ingestPhoneInbox()` on every page load (~2s after init), independent of `firebaseLoadAll`
+- Phone unchanged (it never ingests; it's the producer)
+
+**One-time data fix:** Manually ingested Don McCoy (id=501) from the inbox + cleared the duplicate inbox entry that resulted from the user trying twice.
 
 ## v1.15.0 — 2026-05-03 — Phone mobile-first UI
 

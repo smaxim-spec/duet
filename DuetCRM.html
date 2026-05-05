@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.15.0';
-var APP_BUILD_DATE = '2026-05-03';
+var APP_VERSION = 'v1.15.1';
+var APP_BUILD_DATE = '2026-05-05';
 var CHANGELOG = [
+ {ver:'v1.15.1', date:'2026-05-05', notes:[
+  'Fix: Phone-captured leads (e.g. Don McCoy) weren\'t being ingested into the main leads array on the laptop',
+  'Root cause: ingestPhoneInbox was only wired to firebaseLoadAll, which silently fails. Was never re-run via the 🔄 Sync button or on auto-load.',
+  'Now runs on EVERY desktop load (~2s after init) AND every time you click 🔄 Sync',
+  'Manual ingest of Don McCoy + cleared the duplicate inbox entry'
+ ]},
  {ver:'v1.15.0', date:'2026-05-03', notes:[
   'PHONE UI overhauled: stripped down to mobile-first essentials',
   'Phone home shows: + Add Lead button, 📅 Schedule button, search bar, today\'s appointments, top 10 prioritized call queue with tap-to-call, action items (read-only), Coach Journal',
@@ -519,6 +525,12 @@ function forceCloudSync(opts){
    nextLeadId = leads.length > 0 ? Math.max.apply(null, leads.map(function(l){return l.id||0}).concat([0])) + 1 : 1;
    nextApptId = appointments.length > 0 ? Math.max.apply(null, appointments.map(function(a){return a.id||0}).concat([0])) + 1 : 1;
   } catch(e){}
+  // Desktop only: also ingest the phone inbox (new leads/appointments captured on phone).
+  // Previously this only ran via firebaseLoadAll, which has the silent-fail merge bug.
+  // Tying it to forceCloudSync ensures the 🔄 Sync button also picks up phone captures.
+  if(!isPhone()){
+   try { ingestPhoneInbox(); } catch(e){ console.log('ingestPhoneInbox error:', e); }
+  }
   if(!silent){
    updateFbStatus('synced');
    showToast('🔄 Synced from cloud · '+leads.length+' leads, '+appointments.length+' appts', 4000);
@@ -534,14 +546,17 @@ function forceCloudSync(opts){
  });
 }
 
-// Phone auto-rescue: on every load, force-pull from cloud since phone is read-mostly.
-// This bypasses the localStorage-quota / firebaseLoadAll bugs that have been giving us
-// partial data on the phone. Runs once after the rest of the app initializes.
-if(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)){
- setTimeout(function(){
+// Auto-rescue on every load:
+//  - Phone: full forceCloudSync (read-mostly, cloud=truth)
+//  - Desktop: just trigger ingestPhoneInbox so phone-captured leads/appts get
+//    pulled into the main arrays even if firebaseLoadAll silently fails its merge
+setTimeout(function(){
+ if(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)){
   forceCloudSync({silent: true});
- }, 1500);
-}
+ } else {
+  try { ingestPhoneInbox(); } catch(e){ console.log('ingestPhoneInbox auto-load error:', e); }
+ }
+}, 2000);
 
 function debouncedFirebaseSync(key){
  if(_fbSuppressSync) return;
