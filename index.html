@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.15.3';
+var APP_VERSION = 'v1.15.4';
 var APP_BUILD_DATE = '2026-05-05';
 var CHANGELOG = [
+ {ver:'v1.15.4', date:'2026-05-05', notes:[
+  'Fix: Tapping a search result, call queue lead, or appointment on phone caused a flicker and bounced back to home',
+  'Root cause: phoneOpenLead set "selectedLeadId" (wrong variable), but renderLeadDetail reads "crmEditId"',
+  'Now correctly sets crmEditId so lead detail page renders'
+ ]},
  {ver:'v1.15.3', date:'2026-05-05', notes:[
   'Fix: Search bug — typing a non-numeric query like "don" returned ~all leads instead of just name matches',
   'Root cause: phone-number match used empty-string indexOf which always returns 0, matching every lead with any phone',
@@ -6948,9 +6953,11 @@ function phoneBuildCallQueue(){
 }
 
 // Phone helpers — open lead detail
+// FIX v1.15.4: was setting wrong variable (selectedLeadId, doesn't exist).
+// renderLeadDetail reads crmEditId — that's the one to set.
 function phoneOpenLead(leadId){
  crmView = 'lead';
- selectedLeadId = leadId;
+ crmEditId = leadId;
  try { renderCRM(); } catch(e){}
  window.scrollTo({top: 0, behavior: 'smooth'});
 }
