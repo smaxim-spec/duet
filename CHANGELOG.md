@@ -2,11 +2,19 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.15.1` · Updated 2026-05-05
+> **Current version:** `v1.15.2` · Updated 2026-05-05
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
 
 ---
+
+## v1.15.2 — 2026-05-05 — Desktop auto-forceCloudSync on load
+
+**Root-cause fix for the recurring "Don McCoy disappears" bug.** Every time we manually fixed the leads in Firebase, the laptop's stale localStorage would push back on the next save and clobber Firebase again — losing whatever lead I'd just added.
+
+Phone has auto-forceCloudSync since v1.13.1; desktop did not. Desktop relied on the buggy `firebaseLoadAll` merge path. **Now desktop also runs forceCloudSync on every page load** (~2s after init). Cloud is treated as truth on every refresh — laptop pulls fresh state, then any subsequent saves push that fresh state back, no clobbering.
+
+`forceCloudSync` already internally calls `ingestPhoneInbox` (added in v1.15.1), so phone-captured leads still get ingested.
 
 ## v1.15.1 — 2026-05-05 — Phone inbox ingest reliability fix
 
