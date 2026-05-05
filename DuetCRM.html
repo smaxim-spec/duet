@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.15.2';
+var APP_VERSION = 'v1.15.3';
 var APP_BUILD_DATE = '2026-05-05';
 var CHANGELOG = [
+ {ver:'v1.15.3', date:'2026-05-05', notes:[
+  'Fix: Search bug — typing a non-numeric query like "don" returned ~all leads instead of just name matches',
+  'Root cause: phone-number match used empty-string indexOf which always returns 0, matching every lead with any phone',
+  'Now phone-match only runs when the search query actually contains digits',
+  'Fixed in both All Leads search and phone home search'
+ ]},
  {ver:'v1.15.2', date:'2026-05-05', notes:[
   'Desktop now auto-forceCloudSync on every page load (was phone-only)',
   'Stops the "stale localStorage clobbers Firebase on next save" loop that was repeatedly deleting Don McCoy and other leads added via phone',
@@ -6983,8 +6989,12 @@ function phoneRunSearch(q){
  if(!resEl) return;
  q = (q || '').trim().toLowerCase();
  if(q.length < 2){ resEl.innerHTML = ''; return; }
+ var qDigits = q.replace(/\D/g,'');
  var matches = (leads || []).filter(function(l){
-  return l && l.name && (l.name.toLowerCase().indexOf(q) >= 0 || (l.phone||'').replace(/\D/g,'').indexOf(q.replace(/\D/g,'')) >= 0);
+  if(!l || !l.name) return false;
+  var nameMatch = l.name.toLowerCase().indexOf(q) >= 0;
+  var phoneMatch = qDigits.length > 0 && (l.phone||'').replace(/\D/g,'').indexOf(qDigits) >= 0;
+  return nameMatch || phoneMatch;
  }).slice(0, 8);
  if(matches.length === 0){
   resEl.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:var(--muted)">No matches</div>';
@@ -7878,9 +7888,13 @@ function renderAllLeads(){
  if(crmFilterAgent !== 'all') filtered = filtered.filter(function(l){return l.agent === crmFilterAgent});
  if(crmSearchQuery.length >= 2){
   var sq = crmSearchQuery.toLowerCase();
+  var sqDigits = sq.replace(/\D/g,'');
   filtered = filtered.filter(function(l){
-   return (l.name && l.name.toLowerCase().indexOf(sq) >= 0) ||
-          (l.phone && l.phone.replace(/\D/g,'').indexOf(sq.replace(/\D/g,'')) >= 0);
+   var nameMatch = l.name && l.name.toLowerCase().indexOf(sq) >= 0;
+   // Phone match ONLY if the search query actually contains digits — else
+   // empty string indexOf always returns 0 and matches every lead with a phone.
+   var phoneMatch = sqDigits.length > 0 && l.phone && l.phone.replace(/\D/g,'').indexOf(sqDigits) >= 0;
+   return nameMatch || phoneMatch;
   });
  }
  filtered.sort(function(a,b){return new Date(b.created) - new Date(a.created)});
