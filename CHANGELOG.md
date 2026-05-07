@@ -2,9 +2,22 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.16.1` · Updated 2026-05-07
+> **Current version:** `v1.16.2` · Updated 2026-05-07
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.16.2 — 2026-05-07 — DuetBooks-presence detection fix
+
+After v1.16.1 + DuetBooks v1.3.0 shipped, Vivian Cabaniss (and other manually-created DuetBooks cases) still showed "⚠ No Pipeline Case Found" with a "+ Create Case" button on the lead detail. Root cause: the CRM was checking the local `pl` array (which only gets cases from `convertToPipeline`), not DuetBooks itself. Manual DuetBooks cases never landed in `pl`.
+
+- Presence-of-case detection now checks **both** local `pl` AND `lead.policyStatus` (which DuetBooks stamps via push-back). Either signal = case exists.
+- Won-section header reads `✓ Case in DuetBooks — Issued` (or current status) instead of generic "Case in Pipeline"
+- "+ Create Case" button hidden when `policyStatus` is set
+- One-shot manual sync ran server-side: pushed current `policyStatus` from 7 DuetBooks cases (with `crmLeadId`) into their matching CRM leads — Vivian, Donna, Lidio, Deborah, Dorota, Kenneth, Jennifer
+
+The 60+ legacy DuetBooks cases (`notes: "Imported from Duet Maxim account"`) have no `crmLeadId` to backfill from notes, so they remain unlinked. They'd need name+phone matching to push back. Deferring that until needed.
 
 ---
 

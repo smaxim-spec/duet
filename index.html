@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.1';
+var APP_VERSION = 'v1.16.2';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.16.2', date:'2026-05-07', notes:[
+  'Fix: "No Pipeline Case Found" warning + "+ Create Case" button were misfiring on Won leads whose DuetBooks case was created manually (not via the CRM convertToPipeline path) — those cases never landed in the local pl mirror, so the CRM thought no case existed even though DuetBooks had it',
+  'Fix: presence-of-case detection now checks both the local pl array AND lead.policyStatus (which DuetBooks stamps via push-back) — either signal confirms the DuetBooks case exists',
+  'Won-section header now reads "✓ Case in DuetBooks — Issued" (or whatever current policy status) instead of generic "Case in Pipeline"',
+  'One-shot manual sync run server-side: pushed current policyStatus from 7 DuetBooks cases (with crmLeadId) into their matching CRM leads — Vivian, Donna, Lidio, Deborah, Dorota, Kenneth, Jennifer'
+ ]},
  {ver:'v1.16.1', date:'2026-05-07', notes:[
   'NEW: Two-status model — leads now carry both an Opportunity status (CRM stage, terminal at Won/Lost) and a Policy status (mirrors DuetBooks case lifecycle: Pending/Submitted/Approved/Issued/Paid/Paid-Partial/Declined)',
   'Lead detail header shows both badges side-by-side: Opportunity (existing stage badge) + 📋 Policy (new, sourced from lead.policyStatus)',
@@ -8349,9 +8355,13 @@ function renderLeadDetail(){
   h += '</select>';
  }
  h += '<div style="margin-left:auto;display:flex;gap:4px">';
- // Create Case button — shown prominently for Won leads with no pipeline case
+ // Create Case button — shown for Won leads with no DuetBooks case.
+ // Presence-of-case detection now uses BOTH the local pl mirror AND
+ // lead.policyStatus (which DuetBooks stamps via push-back). Either signal
+ // is sufficient to know the case exists somewhere.
  if(lead.stage === 'won'){
-  var hasCase = pl.some(function(c){ return c.client && c.client.toLowerCase() === lead.name.toLowerCase(); });
+  var hasLocalCase = pl.some(function(c){ return c.client && c.client.toLowerCase() === lead.name.toLowerCase(); });
+  var hasCase = hasLocalCase || !!lead.policyStatus;
   if(!hasCase){
    h += '<button class="btn btn-sm" onclick="showCreateCaseModal('+lead.id+')" style="background:var(--grn);color:#fff;border:none;padding:2px 10px;font-size:10px;border-radius:4px;cursor:pointer;font-weight:700">+ Create Case</button>';
   } else {
@@ -8666,13 +8676,16 @@ function renderLeadDetail(){
  if(lead.stage === 'won' || lead.stage === 'lost'){
   if(lead.stage === 'won'){
    h += '<div class="card" style="margin-top:12px;border:2px solid var(--grn);background:var(--gtint)">';
-   var hasCase = pl.some(function(c){ return c.client && c.client.toLowerCase() === lead.name.toLowerCase(); });
+   // Detect via local pl OR policyStatus (DuetBooks push-back). Either confirms case exists.
+   var hasLocalCase = pl.some(function(c){ return c.client && c.client.toLowerCase() === lead.name.toLowerCase(); });
+   var hasCase = hasLocalCase || !!lead.policyStatus;
    if(hasCase){
-    h += '<h3 style="color:var(--grn)">✓ Case in Pipeline</h3>';
-    h += '<p style="font-size:12px">This lead has a pipeline case. Manage it in DuetBooks.</p>';
+    var psShownLbl = lead.policyStatus ? (POLICY_STATUS_LABELS[lead.policyStatus] || lead.policyStatus) : '';
+    h += '<h3 style="color:var(--grn)">✓ Case in DuetBooks'+(psShownLbl?' — '+psShownLbl:'')+'</h3>';
+    h += '<p style="font-size:12px">This lead has a DuetBooks case. Manage policy status (Submitted → Approved → Issued → Paid) in DuetBooks.</p>';
    } else {
-    h += '<h3 style="color:var(--amb)">⚠ No Pipeline Case Found</h3>';
-    h += '<p style="font-size:12px">This lead is marked Won but has no matching case in the pipeline.</p>';
+    h += '<h3 style="color:var(--amb)">⚠ No DuetBooks Case Found</h3>';
+    h += '<p style="font-size:12px">This lead is marked Won but no matching case exists in DuetBooks. Create one to track the policy.</p>';
     h += '<button class="btn btn-amb" onclick="showCreateCaseModal('+lead.id+')">Create Case Now</button>';
    }
    h += '</div>';
