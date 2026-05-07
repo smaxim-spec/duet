@@ -313,9 +313,19 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.15.8';
+var APP_VERSION = 'v1.16.0';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.16.0', date:'2026-05-07', notes:[
+  'NEW: 🧹 Cleanup tool — reconciles CRM Won/App Submitted leads against DuetBooks (the source of truth for closed deals)',
+  'Fuzzy-matches by client name (case/punctuation/space-insensitive so "Daisy Delgado live" matches "Daisy Delgado-live")',
+  'Three buckets: ✅ Safe to remove (matched, no mismatches, no CRM-only data — auto-checked); ⚠️ Review needed (matched but has field mismatches like amount/product/agent OR has CRM-only data — manual checkbox); ❌ No match in DuetBooks (kept; create case manually)',
+  'Lost leads are never touched',
+  'Before delete: copies historyNotes + wonReason into the matching DuetBooks notes field; callLog discarded (recoverable from the Firebase backup)',
+  '"Skip note copy" toggle per row in Review bucket if you don\'t want CRM notes appended',
+  'Backup snapshot of full /leads is written to /backups/cleanup_TIMESTAMP before any delete (reversible)',
+  'Pre-cleanup baseline already saved: /backups/cleanup_20260507T174719 (502 leads, 486KB)'
+ ]},
  {ver:'v1.15.8', date:'2026-05-07', notes:[
   'Speed up the native iOS call-confirmation dialog open time',
   'v1.15.7 made the disposition toast render synchronously on tap, which blocked iOS from showing its native "Call <number>?" confirmation until our toast finished building',
@@ -7087,6 +7097,7 @@ function renderCRM(){
  h += '<button class="btn btn-sm '+(crmView==='bulk'?'btn-amb':'btn-outline')+'" onclick="crmView=\'bulk\';renderCRM()">+ Bulk Add</button>';
  h += '<button class="btn btn-sm '+(crmView==='schedule'?'btn-pri':'btn-outline')+'" onclick="crmView=\'schedule\';renderCRM()">Schedule</button>';
  h += '<button class="btn btn-sm '+(crmView==='agents'?'btn-pri':'btn-outline')+'" onclick="crmView=\'agents\';renderCRM()">Agents</button>';
+ h += '<button class="btn btn-sm '+(crmView==='cleanup'?'btn-pri':'btn-outline')+'" onclick="_cleanupBuckets=null;_cleanupBooksCases=null;crmView=\'cleanup\';renderCRM()" title="Reconcile Won leads against DuetBooks and bulk-delete duplicates">🧹 Cleanup</button>';
  // Force Sync from Cloud — manual escape hatch for stale localStorage / firebaseLoadAll bugs
  h += '<button class="btn btn-sm btn-outline" onclick="forceCloudSync()" style="font-size:10px;padding:3px 10px" title="Pull fresh data from Firebase (use if device looks out of sync)">🔄 Sync</button>';
  h += '</div></div>';
@@ -7097,6 +7108,7 @@ function renderCRM(){
  else if(crmView === 'bulk') h += renderBulkAdd();
  else if(crmView === 'agents') h += renderAgentsTable();
  else if(crmView === 'schedule') h += renderScheduleView();
+ else if(crmView === 'cleanup') h += renderCleanup();
 
  el.innerHTML = h;
  // Restore focus to search inputs after re-render
@@ -7975,6 +7987,308 @@ function renderAllLeads(){
  });
  h += '</table>';
  return h;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CRM CLEANUP — Reconcile Won/app_submitted leads against DuetBooks.
+// DuetBooks is source of truth for closed deals. This tool finds CRM
+// leads that already exist in DuetBooks and bulk-deletes them, copying
+// historyNotes + wonReason into DuetBooks notes first. Lost leads are
+// never touched. Backup snapshot is written to Firebase before delete.
+// ═══════════════════════════════════════════════════════════════
+var _cleanupBooksCases = null;
+var _cleanupBuckets = null;
+
+function _normalizeClientName(s){
+ return ((s || '') + '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function _findBooksMatch(lead, booksCases){
+ var leadKey = _normalizeClientName(lead.name);
+ if(!leadKey) return null;
+ for(var i=0; i<booksCases.length; i++){
+  var c = booksCases[i];
+  if(!c) continue;
+  if(_normalizeClientName(c.client) === leadKey){
+   return {idx: i, bcase: c};
+  }
+ }
+ return null;
+}
+
+function _detectMismatches(lead, bc){
+ var mm = [];
+ var leadAmt = parseFloat(lead.estPremium) || 0;
+ var booksAmt = parseFloat(bc.amount) || 0;
+ if(leadAmt > 0 && booksAmt > 0 && Math.abs(leadAmt - booksAmt) > 1){
+  mm.push('amount: CRM $'+leadAmt.toLocaleString()+' vs DuetBooks $'+booksAmt.toLocaleString());
+ } else if(leadAmt > 0 && booksAmt === 0){
+  mm.push('amount: CRM $'+leadAmt.toLocaleString()+', DuetBooks $0');
+ }
+ var leadProd = (lead.selectedProduct || '').trim();
+ var booksProd = (bc.product || '').trim();
+ if(leadProd && booksProd && leadProd !== booksProd){
+  mm.push('product: CRM "'+leadProd+'" vs DuetBooks "'+booksProd+'"');
+ }
+ var leadAg = (lead.agent || '').trim().toLowerCase();
+ var booksAg = (bc.splitName || '').trim().toLowerCase();
+ if(leadAg && booksAg && leadAg !== booksAg){
+  // Soft match on first word so "Mary P" vs "Mary Petty" doesn't flag
+  var lw = leadAg.split(' ')[0], bw = booksAg.split(' ')[0];
+  if(lw !== bw && lw.indexOf(bw) < 0 && bw.indexOf(lw) < 0){
+   mm.push('agent: CRM "'+lead.agent+'" vs DuetBooks "'+bc.splitName+'"');
+  }
+ }
+ return mm;
+}
+
+function _collectCrmExtras(lead){
+ var hn = (lead.historyNotes || []).filter(function(n){ return n && n.text && (n.text + '').trim(); });
+ return {
+  historyNotes: hn,
+  callLogCount: (lead.callLog || []).length,
+  wonReason: ((lead.wonReason || '') + '').trim()
+ };
+}
+
+function _buildAppendedNote(lead, extras){
+ var parts = [];
+ if(extras.wonReason) parts.push('Won reason: '+extras.wonReason);
+ extras.historyNotes.forEach(function(n){
+  var d = (n.date || '').substring(0,10);
+  parts.push('CRM note ('+d+'): '+n.text);
+ });
+ return parts.join(' · ');
+}
+
+function loadCleanupBuckets(onDone){
+ fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
+  .then(function(r){ return r.json(); })
+  .then(function(cases){
+   var arr = cases || [];
+   if(!Array.isArray(arr)) arr = Object.values(arr);
+   _cleanupBooksCases = arr;
+   var safe = [], review = [], noMatch = [];
+   (leads || []).forEach(function(l){
+    if(!l || (l.stage !== 'won' && l.stage !== 'app_submitted')) return;
+    var match = _findBooksMatch(l, arr);
+    if(!match){ noMatch.push(l); return; }
+    var mm = _detectMismatches(l, match.bcase);
+    var extras = _collectCrmExtras(l);
+    var hasExtras = extras.historyNotes.length > 0 || extras.wonReason || extras.callLogCount > 0;
+    var entry = {lead: l, match: match, mismatches: mm, extras: extras};
+    if(mm.length === 0 && !hasExtras) safe.push(entry);
+    else review.push(entry);
+   });
+   _cleanupBuckets = {safe: safe, review: review, noMatch: noMatch};
+   onDone();
+  })
+  .catch(function(e){
+   console.error('Cleanup load failed:', e);
+   showToast('Could not load DuetBooks cases — check connection', 5000);
+  });
+}
+
+function renderCleanup(){
+ if(!_cleanupBuckets){
+  loadCleanupBuckets(function(){ renderCRM(); });
+  return '<div class="card" style="padding:24px;text-align:center"><div style="font-size:14px;color:var(--muted)">Loading DuetBooks cases…</div></div>';
+ }
+ var b = _cleanupBuckets;
+ var h = '<div class="card" style="padding:16px">';
+ h += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">';
+ h += '<h3 style="margin:0">🧹 CRM Cleanup</h3>';
+ h += '<span style="font-size:11px;color:var(--muted)">DuetBooks is truth · Won + App Submitted only · Lost untouched</span>';
+ h += '<button class="btn btn-sm btn-outline" onclick="_cleanupBuckets=null;_cleanupBooksCases=null;renderCRM()" style="margin-left:auto;font-size:10px;padding:3px 10px">🔄 Refresh</button>';
+ h += '</div>';
+
+ // SAFE TO REMOVE
+ h += '<div style="margin-top:12px;padding:10px;background:rgba(39,174,96,0.06);border:1px solid var(--grn);border-radius:8px">';
+ h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">';
+ h += '<b style="color:var(--grn)">✅ Safe to remove ('+b.safe.length+')</b>';
+ h += '<span style="font-size:11px;color:var(--muted)">Matched in DuetBooks · no mismatches · no CRM-only data</span>';
+ if(b.safe.length > 0){
+  h += '<button class="btn btn-sm btn-outline" onclick="cleanupToggleBucket(\'safe\',true)" style="font-size:10px;padding:2px 8px;margin-left:auto">Select all</button>';
+  h += '<button class="btn btn-sm btn-outline" onclick="cleanupToggleBucket(\'safe\',false)" style="font-size:10px;padding:2px 8px">Deselect</button>';
+ }
+ h += '</div>';
+ if(b.safe.length === 0){
+  h += '<div style="font-size:12px;color:var(--muted);text-align:center;padding:6px 0">Nothing in this bucket — all matched leads need review.</div>';
+ } else {
+  b.safe.forEach(function(e){
+   var stage = e.lead.stage === 'app_submitted' ? 'App Submitted' : 'Won';
+   var bcStatus = e.match.bcase.status || '?';
+   h += '<div style="padding:5px 8px;border-bottom:1px solid rgba(39,174,96,0.15);display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+   h += '<input type="checkbox" id="cu_safe_'+e.lead.id+'" checked style="width:16px;height:16px">';
+   h += '<b style="font-size:13px">'+escapeHtml(e.lead.name)+'</b>';
+   h += '<span style="font-size:11px;color:var(--muted)">CRM: '+stage+' → DuetBooks: '+bcStatus+'</span>';
+   h += '</div>';
+  });
+ }
+ h += '</div>';
+
+ // REVIEW NEEDED
+ h += '<div style="margin-top:14px;padding:10px;background:rgba(243,156,18,0.06);border:1px solid var(--amb);border-radius:8px">';
+ h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">';
+ h += '<b style="color:var(--amb)">⚠️ Review needed ('+b.review.length+')</b>';
+ h += '<span style="font-size:11px;color:var(--muted)">Matched, but has mismatches or CRM-only data — not auto-checked</span>';
+ h += '</div>';
+ if(b.review.length === 0){
+  h += '<div style="font-size:12px;color:var(--muted);text-align:center;padding:6px 0">Nothing here.</div>';
+ } else {
+  b.review.forEach(function(e){
+   var stage = e.lead.stage === 'app_submitted' ? 'App Submitted' : 'Won';
+   var bcStatus = e.match.bcase.status || '?';
+   var bcAmt = parseFloat(e.match.bcase.amount) || 0;
+   h += '<div style="padding:8px;border-bottom:1px solid rgba(243,156,18,0.15)">';
+   h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+   h += '<input type="checkbox" id="cu_review_'+e.lead.id+'" style="width:16px;height:16px">';
+   h += '<b style="font-size:13px">'+escapeHtml(e.lead.name)+'</b>';
+   h += '<span style="font-size:11px;color:var(--muted)">CRM: '+stage+' → DuetBooks: '+bcStatus+' / $'+bcAmt.toLocaleString()+'</span>';
+   h += '</div>';
+   if(e.mismatches.length > 0){
+    h += '<div style="font-size:11px;color:#c0392b;margin-left:24px;margin-top:4px">⚠ '+e.mismatches.map(escapeHtml).join(' · ')+'</div>';
+   }
+   var extraBits = [];
+   if(e.extras.historyNotes.length > 0) extraBits.push(e.extras.historyNotes.length+' historyNote'+(e.extras.historyNotes.length>1?'s':'')+' (copied)');
+   if(e.extras.wonReason) extraBits.push('won reason: '+escapeHtml(e.extras.wonReason)+' (copied)');
+   if(e.extras.callLogCount > 0) extraBits.push(e.extras.callLogCount+' callLog (discarded — recoverable from backup)');
+   if(extraBits.length > 0){
+    h += '<div style="font-size:11px;color:var(--muted);margin-left:24px;margin-top:2px">CRM-only: '+extraBits.join(' · ')+'</div>';
+   }
+   var hasNotesToCopy = e.extras.historyNotes.length > 0 || e.extras.wonReason;
+   if(hasNotesToCopy){
+    h += '<div style="margin-left:24px;margin-top:4px"><label style="font-size:11px;color:var(--muted);cursor:pointer"><input type="checkbox" id="cu_skip_'+e.lead.id+'" style="vertical-align:middle"> Skip note copy for this lead</label></div>';
+   }
+   h += '</div>';
+  });
+ }
+ h += '</div>';
+
+ // NO MATCH
+ h += '<div style="margin-top:14px;padding:10px;background:rgba(192,57,43,0.05);border:1px solid #c0392b;border-radius:8px">';
+ h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">';
+ h += '<b style="color:#c0392b">❌ No match in DuetBooks ('+b.noMatch.length+')</b>';
+ h += '<span style="font-size:11px;color:var(--muted)">Keep — create the DuetBooks case manually before cleanup</span>';
+ h += '</div>';
+ if(b.noMatch.length === 0){
+  h += '<div style="font-size:12px;color:var(--muted);text-align:center;padding:6px 0">Every Won lead has a DuetBooks case. 🎉</div>';
+ } else {
+  b.noMatch.forEach(function(l){
+   var stage = l.stage === 'app_submitted' ? 'App Submitted' : 'Won';
+   h += '<div style="padding:5px 8px;border-bottom:1px solid rgba(192,57,43,0.12);display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+   h += '<span style="font-size:13px;font-weight:600">'+escapeHtml(l.name)+'</span>';
+   h += '<span style="font-size:11px;color:var(--muted)">'+stage+'</span>';
+   h += '<button class="btn btn-sm btn-outline" onclick="crmEditId='+l.id+';crmView=\'lead\';renderCRM()" style="font-size:10px;padding:2px 8px;margin-left:auto">Open lead</button>';
+   h += '</div>';
+  });
+ }
+ h += '</div>';
+
+ // ACTION BAR
+ if(b.safe.length + b.review.length > 0){
+  h += '<div style="margin-top:18px;padding:12px;background:var(--bg);border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
+  h += '<button class="btn btn-pri" onclick="runCleanupDelete()" style="font-weight:700">🗑 Delete checked leads from CRM</button>';
+  h += '<span style="font-size:11px;color:var(--muted)">Backup snapshot is written to Firebase before any delete (reversible from /backups/cleanup_TIMESTAMP)</span>';
+  h += '</div>';
+ }
+
+ h += '</div>';
+ return h;
+}
+
+function cleanupToggleBucket(bucket, on){
+ var b = _cleanupBuckets;
+ if(!b) return;
+ (b[bucket] || []).forEach(function(e){
+  var cb = document.getElementById('cu_'+bucket+'_'+e.lead.id);
+  if(cb) cb.checked = on;
+ });
+}
+
+function runCleanupDelete(){
+ if(!_cleanupBuckets || !_cleanupBooksCases){ showToast('Cleanup data not loaded', 3000); return; }
+ var b = _cleanupBuckets;
+ var toDelete = [];
+ b.safe.forEach(function(e){
+  var cb = document.getElementById('cu_safe_'+e.lead.id);
+  if(cb && cb.checked) toDelete.push({entry: e, copyNotes: false});
+ });
+ b.review.forEach(function(e){
+  var cb = document.getElementById('cu_review_'+e.lead.id);
+  if(cb && cb.checked){
+   var skipEl = document.getElementById('cu_skip_'+e.lead.id);
+   var hasNotes = e.extras.historyNotes.length > 0 || e.extras.wonReason;
+   var copy = hasNotes && !(skipEl && skipEl.checked);
+   toDelete.push({entry: e, copyNotes: copy});
+  }
+ });
+ if(toDelete.length === 0){ showToast('Nothing checked', 3000); return; }
+ var noteCount = toDelete.filter(function(x){ return x.copyNotes; }).length;
+ var msg = 'Delete '+toDelete.length+' lead(s) from CRM?\n\n'+
+  '· Backup snapshot will be written to Firebase first\n'+
+  '· '+noteCount+' will have CRM notes appended to DuetBooks\n'+
+  '· DuetBooks cases are NOT deleted, only updated\n'+
+  '· Reversible only by restoring from the backup snapshot';
+ if(!confirm(msg)) return;
+
+ var ts = new Date().toISOString().replace(/[:.\-T]/g,'').substring(0,15);
+ var backupPath = 'cleanup_'+ts;
+ var snapshot = {data: leads, device: (typeof DEVICE_NAME !== 'undefined' ? DEVICE_NAME : 'unknown'), updated: new Date().toISOString()};
+ fetch('https://duet-crm-default-rtdb.firebaseio.com/backups/'+backupPath+'.json', {
+  method: 'PUT',
+  headers: {'Content-Type':'application/json'},
+  body: JSON.stringify({
+   reason: 'Pre-cleanup-tool delete batch',
+   date: new Date().toISOString(),
+   leadsBeforeDelete: leads.length,
+   deleting: toDelete.map(function(x){ return {id: x.entry.lead.id, name: x.entry.lead.name, copyNotes: x.copyNotes}; }),
+   leads: snapshot
+  })
+ }).then(function(r){
+  if(!r.ok){ throw new Error('Backup write failed: HTTP '+r.status); }
+  return _executeCleanup(toDelete, backupPath);
+ }).catch(function(err){
+  showToast('Cleanup aborted: '+err.message, 6000);
+ });
+}
+
+function _executeCleanup(toDelete, backupPath){
+ var booksUpdated = false;
+ toDelete.forEach(function(x){
+  if(!x.copyNotes) return;
+  var note = _buildAppendedNote(x.entry.lead, x.entry.extras);
+  if(!note) return;
+  var bcCase = _cleanupBooksCases[x.entry.match.idx];
+  if(!bcCase) return;
+  var existing = (bcCase.notes || '').trim();
+  bcCase.notes = existing ? (existing + ' · ' + note) : note;
+  booksUpdated = true;
+ });
+
+ var deleteIds = {};
+ toDelete.forEach(function(x){ deleteIds[x.entry.lead.id] = true; });
+
+ var booksWrite = booksUpdated
+  ? fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json', {
+     method:'PUT', headers:{'Content-Type':'application/json'},
+     body: JSON.stringify(_cleanupBooksCases)
+    })
+  : Promise.resolve({ok:true});
+
+ return booksWrite.then(function(r){
+  if(booksUpdated && !r.ok){ throw new Error('DuetBooks notes update failed: HTTP '+r.status); }
+  var beforeCount = leads.length;
+  leads = leads.filter(function(l){ return l && !deleteIds[l.id]; });
+  var deletedCount = beforeCount - leads.length;
+  saveLeads();
+  _cleanupBuckets = null;
+  _cleanupBooksCases = null;
+  showToast('✅ Removed '+deletedCount+' lead(s) from CRM. Backup at /backups/'+backupPath, 8000);
+  renderCRM();
+ }).catch(function(err){
+  showToast('Cleanup partial failure: '+err.message+' — backup at /backups/'+backupPath, 10000);
+ });
 }
 
 function renderLeadDetail(){

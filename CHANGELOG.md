@@ -2,9 +2,43 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.15.8` · Updated 2026-05-07
+> **Current version:** `v1.16.0` · Updated 2026-05-07
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.16.0 — 2026-05-07 — 🧹 CRM Cleanup tool (DuetBooks reconciliation)
+
+DuetBooks is the source of truth for closed deals. This new tool walks every CRM Won/App Submitted lead, fuzzy-matches it against DuetBooks cases by client name, and gives you a one-click bulk-delete for the duplicates.
+
+**Three buckets:**
+
+- ✅ **Safe to remove** — Matched in DuetBooks, no field mismatches, no CRM-only data. Auto-checked.
+- ⚠️ **Review needed** — Matched, but has field mismatches (amount/product/agent differ between CRM and DuetBooks) or CRM-only data (historyNotes / wonReason / callLog). Not auto-checked — you decide per row.
+- ❌ **No match in DuetBooks** — Kept in CRM. Create the DuetBooks case manually before they can be cleaned up. (Vivian Cabaniss-style cases land here.)
+
+**Lost leads are never touched.**
+
+**What happens on delete:**
+
+1. Backup snapshot of full `/leads` written to `/backups/cleanup_TIMESTAMP` (reversible)
+2. CRM `historyNotes` + `wonReason` appended to the matching DuetBooks case's `notes` field (skippable per row via "Skip note copy" checkbox)
+3. `callLog` discarded — recoverable from the backup if ever needed
+4. Selected leads filtered out of the local `leads` array and pushed to Firebase
+5. DuetBooks cases themselves are never deleted, only optionally annotated
+
+**Pre-tool baseline backup:** `/backups/cleanup_20260507T174719` (502 leads, 486KB)
+
+**Fuzzy match rule:** lowercase + strip non-alphanumeric, so "Daisy Delgado live" === "Daisy Delgado-live".
+
+**Mismatch detection:**
+
+- Amount: flagged if CRM > $0 and either DuetBooks shows different value (>$1 diff) or shows $0
+- Product: flagged if both sides have a product and they don't match
+- Agent: flagged unless one side's first word is a substring of the other (so "Mary P" vs "Mary Petty" doesn't flag — first word matches)
+
+**Access:** CRM tab → 🧹 Cleanup button in the nav row.
 
 ---
 
