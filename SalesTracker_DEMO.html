@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SalesTracker — Steve Maxim | AAA Life Specialist | Branch Z012</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--pri:#534AB7;--grn:#1D9E75;--amb:#EF9F27;--dgrn:#0F6E56;--bg:#f5f5f3;--card:#fff;--ptint:#EEEDFE;--gtint:#F0FBF7;--atint:#FFFCF5;--txt:#222;--muted:#666;--border:#ddd;--radius:8px;--shadow:0 1px 3px rgba(0,0,0,.08)}
+html{font-size:13px}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--txt);line-height:1.5}
+.topbar{background:var(--pri);color:#fff;padding:10px 24px;display:flex;justify-content:space-between;align-items:center}
+.topbar h1{font-size:16px;font-weight:600}
+.topbar .meta{font-size:11px;opacity:.85}
+.tabs{display:flex;background:#fff;border-bottom:2px solid var(--border);padding:0 16px;gap:0;overflow-x:auto}
+.tab{padding:10px 18px;cursor:pointer;font-size:12px;font-weight:500;border-bottom:3px solid transparent;white-space:nowrap;color:var(--muted);transition:.15s}
+.tab:hover{color:var(--pri);background:var(--ptint)}
+.tab.active{color:var(--pri);border-bottom-color:var(--pri);font-weight:600}
+.panel{display:none;padding:20px 24px;max-width:1200px;margin:0 auto}
+.panel.active{display:block}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
+.card h3{font-size:14px;margin-bottom:10px;color:var(--pri)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat-card{background:var(--card);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);text-align:center}
+.stat-card .val{font-size:22px;font-weight:700;color:var(--pri)}
+.stat-card .lbl{font-size:11px;color:var(--muted);margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:var(--ptint);text-align:left;padding:8px 6px;font-weight:600;border-bottom:2px solid var(--border);white-space:nowrap}
+td{padding:7px 6px;border-bottom:1px solid #eee;vertical-align:top}
+tr:hover td{background:#fafafa}
+input,select,textarea{font-family:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;width:100%}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 2px rgba(83,74,183,.15)}
+textarea{resize:vertical;min-height:50px}
+label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(--muted)}
+.btn{display:inline-block;padding:7px 16px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
+.btn:hover{opacity:.9;transform:translateY(-1px)}
+.btn-pri{background:var(--pri);color:#fff}
+.btn-grn{background:var(--grn);color:#fff}
+.btn-amb{background:var(--amb);color:#fff}
+.btn-dgrn{background:var(--dgrn);color:#fff}
+.btn-sm{padding:4px 10px;font-size:11px}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--txt)}
+.btn-outline:hover{border-color:var(--pri);color:var(--pri)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+.badge-grn{background:#d4f5e9;color:#0a7c55}
+.badge-amb{background:#fef0d5;color:#b87514}
+.badge-pri{background:var(--ptint);color:var(--pri)}
+.badge-red{background:#fde8e8;color:#c0392b}
+.badge-hw{background:#ffe0cc;color:#c44b00;border:1px solid #c44b00}
+.badge-flat{background:#e0ecff;color:#1a5ab8;border:1px solid #1a5ab8}
+.progress-bar{height:8px;background:#eee;border-radius:4px;overflow:hidden;margin-top:4px}
+.progress-fill{height:100%;border-radius:4px;transition:width .3s}
+.toast{position:fixed;top:20px;right:20px;background:#1a1a1a;color:#fff;padding:14px 20px;border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,.25);z-index:9999;max-width:400px;font-size:12px;animation:slideIn .3s}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.match-box{border:2px solid var(--grn);background:var(--gtint);border-radius:var(--radius);padding:10px;margin-top:8px}
+.match-box .strong{color:var(--grn);font-weight:700}
+.match-box .possible{color:var(--amb);font-weight:700}
+.heatmap{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;margin-top:10px}
+.hm-cell{aspect-ratio:1;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px}
+.form-group{display:flex;flex-direction:column}
+.preview-box{background:var(--gtint);border:1px solid #b8e6d4;border-radius:var(--radius);padding:14px;margin-top:12px}
+.preview-box h4{color:var(--grn);margin-bottom:8px}
+.info-panel{background:var(--ptint);border:1px solid #c5c0f0;border-radius:var(--radius);padding:14px}
+.info-panel h4{color:var(--pri);margin-bottom:8px}
+.step{display:flex;gap:14px;margin-bottom:18px;padding:14px;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow)}
+.step-num{width:32px;height:32px;background:var(--pri);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
+.step-content h4{margin-bottom:4px}
+.report-area{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:12px;min-height:100px}
+.pipe-status{display:flex;gap:2px;margin-top:4px}
+.pipe-step{height:4px;flex:1;border-radius:2px;background:#eee}
+.pipe-step.done{background:var(--grn)}
+.pipe-step.current{background:var(--amb)}
+.green-text{color:var(--grn)}
+.amber-text{color:var(--amb)}
+.red-text{color:#c0392b}
+.email-settings .form-row{margin-bottom:12px}
+@media(max-width:768px){.grid2,.grid3,.grid4{grid-template-columns:1fr}.tabs{gap:0}.tab{padding:8px 12px;font-size:11px}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+ <h1>SalesTracker <span style="font-weight:300;font-size:13px">DEMO</span></h1>
+ <div class="meta">Steve Maxim &middot; AAA Life Specialist &middot; Branch Z012 &middot; smaxim@maximent.com</div>
+</div>
+
+<div class="tabs" id="tabs">
+ <div class="tab active" onclick="showTab(0)">Demo Walkthrough</div>
+ <div class="tab" onclick="showTab(1)">Dashboard</div>
+ <div class="tab" onclick="showTab(2)">Pipeline</div>
+ <div class="tab" onclick="showTab(3)">Add Pay Period</div>
+ <div class="tab" onclick="showTab(4)">Rate Table</div>
+ <div class="tab" onclick="showTab(5)">Email &amp; Reports</div>
+</div>
+
+<div class="panel active" id="p0"></div>
+<div class="panel" id="p1"></div>
+<div class="panel" id="p2"></div>
+<div class="panel" id="p3"></div>
+<div class="panel" id="p4"></div>
+<div class="panel" id="p5"></div>
+
+<div id="toastBox"></div>
+
+<script>
+// ── SETTINGS ──
+var settings = {
+ yourShare: 80, partnerShare: 20,
+ mgr1: 'ELZayes@acg.aaa.com', mgr2: '',
+ agentName: 'Steve Maxim', branch: 'Z012', agentEmail: 'smaxim@maximent.com'
+};
+
+// ── PRODUCTS ──
+var products = [
+ {name:'AAA Accumulator IUL',cat:'IUL / Universal Life',rate:105,basis:'target premium',pct:true},
+ {name:'AAA LifeTime UL (age 79 and under)',cat:'IUL / Universal Life',rate:105,basis:'target premium',pct:true},
+ {name:'AAA LifeTime UL (age 80+)',cat:'IUL / Universal Life',rate:100,basis:'target premium',pct:true},
+ {name:'Securian Eclipse UL (brokered)',cat:'IUL / Universal Life',rate:70,basis:'target/planned prem',pct:true},
+ {name:'Platinum Annuity 5 External (ages 0-79)',cat:'Annuities',rate:2.85,basis:'deposit',pct:true},
+ {name:'Platinum Annuity 5 Internal (ages 0-79)',cat:'Annuities',rate:1.85,basis:'deposit',pct:true},
+ {name:'Elite3 Guarantee External',cat:'Annuities',rate:1.25,basis:'deposit',pct:true},
+ {name:'GIA External Funds (ages 0-79)',cat:'Annuities',rate:2.80,basis:'deposit',pct:true},
+ {name:'GIA Internal Funds (ages 0-79)',cat:'Annuities',rate:1.80,basis:'deposit',pct:true},
+ {name:'GA American Legend 7 External (ages 0-75)',cat:'Annuities',rate:2.85,basis:'deposit',pct:true},
+ {name:'GA Safe Return External (ages 0-75)',cat:'Annuities',rate:2.85,basis:'deposit',pct:true},
+ {name:'GA Landmark 3 External (ages 0-75)',cat:'Annuities',rate:2.75,basis:'deposit',pct:true},
+ {name:'GA Landmark 5 External (ages 0-75)',cat:'Annuities',rate:2.85,basis:'deposit',pct:true},
+ {name:'GA Premier Bonus External (ages 0-75)',cat:'Annuities',rate:2.85,basis:'deposit',pct:true},
+ {name:'GA Premier Income Bonus External (ages 0-75)',cat:'Annuities',rate:2.85,basis:'deposit',pct:true},
+ {name:'Whole Life (W21GN / RWL21)',cat:'Life (Whole / Term)',rate:75,basis:'annualized premium',pct:true},
+ {name:'Guaranteed Issue Whole Life (GIWL)',cat:'Life (Whole / Term)',rate:50,basis:'annualized premium',pct:true},
+ {name:'Life Paid Up at 65 (conversion)',cat:'Life (Whole / Term)',rate:90,basis:'annualized premium',pct:true},
+ {name:'10-Year Term',cat:'Life (Whole / Term)',rate:75,basis:'annualized premium',pct:true},
+ {name:'15-Year Term',cat:'Life (Whole / Term)',rate:75,basis:'annualized premium',pct:true},
+ {name:'20-Year Term',cat:'Life (Whole / Term)',rate:80,basis:'annualized premium',pct:true},
+ {name:'30-Year Term',cat:'Life (Whole / Term)',rate:100,basis:'annualized premium',pct:true},
+ {name:'Certificate of Deposit (CD)',cat:'Banking / CD / Other',rate:0.05,basis:'deposit',pct:true,hardwired:true},
+ {name:'Credit Card',cat:'Banking / CD / Other',rate:0,basis:'flat fee',pct:false,flat:true},
+ {name:'AAA Membership',cat:'Banking / CD / Other',rate:0,basis:'flat fee',pct:false,flat:true}
+];
+
+function findProd(n){ return products.find(function(p){return p.name===n}) || products[0]; }
+
+// ── DEMO DATA ──
+function demoPipeline(){
+ return [
+  {id:1,client:'Robert Johnson',product:'Platinum Annuity 5 External (ages 0-79)',amount:75000,rate:2.85,split:'split',splitName:'Demo Agent',splitEmail:'agent@acg.aaa.com',status:'issued',submitted:'2026-03-10',estPay:'2026-04-15',paidIn:'',notes:''},
+  {id:2,client:'Patricia Williams',product:'Guaranteed Issue Whole Life (GIWL)',amount:2400,rate:50,split:'split',splitName:'Demo Agent',splitEmail:'agent@acg.aaa.com',status:'approved',submitted:'2026-03-15',estPay:'2026-04-15',paidIn:'',notes:''},
+  {id:3,client:'Michael Chen',product:'20-Year Term',amount:1850,rate:80,split:'split',splitName:'Demo Agent',splitEmail:'agent@acg.aaa.com',status:'submitted',submitted:'2026-03-20',estPay:'2026-04-30',paidIn:'',notes:''},
+  {id:4,client:'Sandra Davis',product:'GA Landmark 5 External (ages 0-75)',amount:120000,rate:2.85,split:'full',splitName:'',splitEmail:'',status:'pending',submitted:'2026-03-22',estPay:'',paidIn:'',notes:''},
+  {id:5,client:'James Wilson',product:'AAA Accumulator IUL',amount:3600,rate:105,split:'split',splitName:'Demo Agent',splitEmail:'',status:'pending',submitted:'2026-03-25',estPay:'',paidIn:'',notes:''},
+  {id:6,client:'Joyce Aldrich',product:'Certificate of Deposit (CD)',amount:85000,rate:0.05,split:'full',splitName:'',splitEmail:'',status:'issued',submitted:'2026-03-18',estPay:'2026-04-15',paidIn:'',notes:''},
+  {id:7,client:'Cecil Cole',product:'AAA Membership',amount:150,rate:0,split:'full',splitName:'',splitEmail:'',status:'submitted',submitted:'2026-03-24',estPay:'',paidIn:'',notes:'flat fee'}
+ ];
+}
+
+function demoPeriods(){
+ return [
+  {id:1,label:'Jan P1',month:'Jan',mma:10148,varicent:2001.60,gross:3340.44,banking:65,preTax:240.32,taxes:645.99,postTax:53.24,net:2400.89,notes:''},
+  {id:2,label:'Jan P2',month:'Jan',mma:10148,varicent:0,gross:1240,banking:28.75,preTax:240.32,taxes:152,postTax:53.24,net:794.19,notes:''},
+  {id:3,label:'Feb P1',month:'Feb',mma:14884,varicent:1992,gross:3317,banking:165.41,preTax:240.32,taxes:617,postTax:53.24,net:2406,notes:''},
+  {id:4,label:'Feb P2',month:'Feb',mma:14884,varicent:2556.36,gross:3885,banking:51.80,preTax:240.32,taxes:755,postTax:53.24,net:2836,notes:''},
+  {id:5,label:'Mar P1',month:'Mar',mma:15776,varicent:518.40,gross:1777,banking:70.41,preTax:240.32,taxes:287,postTax:53.24,net:1196,notes:''}
+ ];
+}
+
+var pl = demoPipeline();
+var pe = demoPeriods();
+var nextId = 8;
+var nextPeId = 6;
+
+// ── UTILITY ──
+function $(s){ return document.querySelectorAll(s); }
+function $1(s){ return document.querySelector(s); }
+function fmt(n){ return '$' + Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtInt(n){ return '$' + Number(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+function pv(id){ return parseFloat(document.getElementById(id)?.value) || 0; }
+
+function calcCase(c){
+ var p = findProd(c.product);
+ var origGross, steveShare, partnerGets;
+ if(p.flat){
+  origGross = c.amount;
+  steveShare = c.split === 'split' ? c.amount * (settings.yourShare/100) : c.amount;
+  partnerGets = c.split === 'split' ? c.amount * (settings.partnerShare/100) : 0;
+ } else {
+  origGross = c.amount * (c.rate / 100);
+  steveShare = c.split === 'split' ? origGross * (settings.yourShare/100) : origGross;
+  partnerGets = c.split === 'split' ? origGross * (settings.partnerShare/100) : 0;
+ }
+ return {origGross:origGross, steveShare:steveShare, partnerGets:partnerGets};
+}
+
+function tierLabel(mma){
+ if(mma >= 6667) return '<span class="badge badge-grn">T4</span>';
+ if(mma >= 5000) return '<span class="badge badge-amb">T3</span>';
+ return '<span class="badge badge-red">T2</span>';
+}
+function tierText(mma){ return mma >= 6667 ? 'T4' : mma >= 5000 ? 'T3' : 'T2'; }
+
+var statusOrder = ['pending','submitted','approved','issued','paid'];
+function statusIdx(s){ return statusOrder.indexOf(s.toLowerCase()); }
+function statusBadge(s){
+ var cls = s==='paid'?'badge-grn':s==='issued'?'badge-pri':s==='approved'?'badge-pri':s==='submitted'?'badge-amb':'badge-red';
+ return '<span class="badge '+cls+'">'+s.charAt(0).toUpperCase()+s.slice(1)+'</span>';
+}
+function statusBar(s){
+ var idx = statusIdx(s);
+ var h = '<div class="pipe-status">';
+ for(var i=0;i<5;i++){
+  var cls = i < idx ? 'done' : i === idx ? 'current' : '';
+  h += '<div class="pipe-step '+cls+'"></div>';
+ }
+ return h + '</div>';
+}
+
+function showToast(msg, dur){
+ dur = dur || 10000;
+ var d = document.createElement('div');
+ d.className = 'toast';
+ d.innerHTML = msg;
+ document.getElementById('toastBox').appendChild(d);
+ setTimeout(function(){ d.style.opacity='0'; setTimeout(function(){ d.remove(); },300); }, dur);
+}
+
+// ── TABS ──
+function showTab(i){
+ var tabs = document.querySelectorAll('.tab');
+ var panels = document.querySelectorAll('.panel');
+ tabs.forEach(function(t,j){ t.classList.toggle('active', j===i); });
+ panels.forEach(function(p,j){ p.classList.toggle('active', j===i); });
+ if(i===0) renderWalkthrough();
+ if(i===1) renderDash();
+ if(i===2) renderPipe();
+ if(i===3) renderPayEntry();
+ if(i===4) renderRates();
+ if(i===5) renderEM();
+}
+
+// ── PRODUCT DROPDOWN HTML ──
+function prodOptions(sel){
+ var cats = ['IUL / Universal Life','Annuities','Life (Whole / Term)','Banking / CD / Other'];
+ var h = '<option value="">— Select product —</option>';
+ cats.forEach(function(cat){
+  h += '<optgroup label="'+cat+'">';
+  products.forEach(function(p){
+   if(p.cat === cat){
+    var extra = p.hardwired ? ' [HARDWIRED 0.05%]' : p.flat ? ' [FLAT FEE]' : '';
+    h += '<option value="'+p.name+'"'+(sel===p.name?' selected':'')+'>'+p.name+extra+'</option>';
+   }
+  });
+  h += '</optgroup>';
+ });
+ return h;
+}
+
+// ══════════════════════════════════
+// TAB 0: DEMO WALKTHROUGH
+// ══════════════════════════════════
+function renderWalkthrough(){
+ var h = '<h2 style="margin-bottom:16px;color:var(--pri)">Demo Walkthrough</h2>';
+ h += '<div class="step"><div class="step-num">1</div><div class="step-content"><h4>CD Hardwired &amp; Flat Fees</h4><p>Go to the <b>Pipeline</b> tab and open the product dropdown. In the <b>Banking / CD / Other</b> category you\'ll see:</p><ul style="margin:6px 0 0 18px"><li><b>Certificate of Deposit (CD)</b> — rate is locked at 0.05% and cannot be changed. Shows a <span class="badge badge-hw">HARDWIRED</span> badge.</li><li><b>Credit Card</b> and <b>AAA Membership</b> — flat fee items. Enter the dollar commission directly in the Amount field. Shows a <span class="badge badge-flat">FLAT FEE</span> badge.</li></ul></div></div>';
+ h += '<div class="step"><div class="step-num">2</div><div class="step-content"><h4>Split Agent Tracking</h4><p>Each pipeline case can have a <b>split agent name</b> and <b>email</b>. When split, Steve gets 80% and the partner gets 20%. When you add a case with a split agent email, a <b>sale notification mailto link</b> is generated, addressed to the manager(s) and the split agent.</p></div></div>';
+ h += '<div class="step"><div class="step-num">3</div><div class="step-content"><h4>Pipeline Matching</h4><p>Go to <b>Add Pay Period</b> and enter <b>$1,710.00</b> as the Varicent commission. This matches Robert Johnson\'s $75k Platinum Annuity 5 case:</p><ul style="margin:6px 0 0 18px"><li>Orig gross = $75,000 &times; 2.85% = $2,137.50</li><li>Steve\'s 80% = $1,710.00</li></ul><p>A green match suggestion appears. Click <b>Confirm match</b> to mark the case as Paid.</p></div></div>';
+ h += '<div class="step"><div class="step-num">4</div><div class="step-content"><h4>Weekly Report (Fixed)</h4><p>Go to <b>Email &amp; Reports</b> and click <b>Generate weekly report</b>. The <code>genReport()</code> function reads live pipeline data and renders:</p><ul style="margin:6px 0 0 18px"><li>Open cases table with commission totals</li><li>3MMA/Tier, YTD net, projected annual net</li><li><b>Open in Gmail</b> — mailto link with plain text</li><li><b>Copy HTML for Gmail</b> — copies formatted HTML to clipboard</li></ul></div></div>';
+ h += '<div style="display:flex;gap:10px;margin-top:20px">';
+ h += '<button class="btn btn-pri" onclick="loadDemoScenario()">Load demo scenario</button>';
+ h += '<button class="btn btn-outline" onclick="resetDemo()">Reset demo data</button>';
+ h += '</div>';
+ $1('#p0').innerHTML = h;
+}
+
+function loadDemoScenario(){
+ pl = demoPipeline();
+ pe = demoPeriods();
+ showTab(3);
+ setTimeout(function(){
+  var f = document.getElementById;
+  $1('#pp_label').value = 'Apr P1';
+  $1('#pp_month').value = 'Apr';
+  $1('#pp_mma').value = '15776';
+  $1('#pp_varicent').value = '1710.00';
+  $1('#pp_gross').value = '2990.00';
+  $1('#pp_banking').value = '55.00';
+  $1('#pp_pretax').value = '240.32';
+  $1('#pp_taxes').value = '520.00';
+  $1('#pp_posttax').value = '53.24';
+  $1('#pp_net').value = '2121.44';
+  $1('#pp_notes').value = 'Annuity $75k Johnson';
+  updatePayPreview();
+ }, 100);
+}
+
+function resetDemo(){
+ pl = demoPipeline();
+ pe = demoPeriods();
+ nextId = 8;
+ nextPeId = 6;
+ showToast('Demo data reset to defaults.', 4000);
+ renderWalkthrough();
+}
+
+// ══════════════════════════════════
+// TAB 1: DASHBOARD
+// ══════════════════════════════════
+function renderDash(){
+ var ytdNet = pe.reduce(function(s,p){return s+p.net},0);
+ var ytdVaricent = pe.reduce(function(s,p){return s+p.varicent},0);
+ var ytdGross = pe.reduce(function(s,p){return s+p.gross},0);
+ var latestMma = pe.length ? pe[pe.length-1].mma : 0;
+ var openCases = pl.filter(function(c){return c.status!=='paid'}).length;
+ var paidCases = pl.filter(function(c){return c.status==='paid'}).length;
+ var openComm = pl.filter(function(c){return c.status!=='paid'}).reduce(function(s,c){return s+calcCase(c).steveShare},0);
+ var periodsCount = pe.length;
+ var projAnnual = periodsCount > 0 ? (ytdNet / periodsCount) * 24 : 0;
+ var goalPct = Math.min(100, (projAnnual / 100000) * 100);
+
+ var h = '<h2 style="margin-bottom:16px;color:var(--pri)">Dashboard — YTD Summary</h2>';
+ h += '<div class="grid4">';
+ h += '<div class="stat-card"><div class="val">'+fmt(ytdNet)+'</div><div class="lbl">YTD Net Deposited</div></div>';
+ h += '<div class="stat-card"><div class="val">'+fmt(ytdVaricent)+'</div><div class="lbl">YTD Varicent Commission</div></div>';
+ h += '<div class="stat-card"><div class="val">'+fmtInt(latestMma)+'</div><div class="lbl">Current 3MMA &middot; '+tierText(latestMma)+'</div></div>';
+ h += '<div class="stat-card"><div class="val">'+openCases+'</div><div class="lbl">Open Pipeline Cases</div></div>';
+ h += '</div>';
+
+ // Goal progress
+ h += '<div class="card"><h3>$100K Annual Net Goal</h3>';
+ h += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Projected: '+fmt(projAnnual)+'</span><span>'+goalPct.toFixed(1)+'%</span></div>';
+ h += '<div class="progress-bar"><div class="progress-fill" style="width:'+goalPct+'%;background:'+(goalPct>=100?'var(--grn)':goalPct>=75?'var(--amb)':'var(--pri)')+'"></div></div>';
+ h += '</div>';
+
+ // Period detail table
+ h += '<div class="card"><h3>Pay Period Detail</h3>';
+ h += '<div style="overflow-x:auto"><table><tr><th>Period</th><th>3MMA</th><th>Tier</th><th>Varicent</th><th>Gross Pay</th><th>Banking</th><th>Pre-tax</th><th>Taxes</th><th>Post-tax</th><th>Net Pay</th></tr>';
+ pe.forEach(function(p){
+  h += '<tr><td><b>'+p.label+'</b></td><td>'+fmtInt(p.mma)+'</td><td>'+tierLabel(p.mma)+'</td><td>'+fmt(p.varicent)+'</td><td>'+fmt(p.gross)+'</td><td>'+fmt(p.banking)+'</td><td>'+fmt(p.preTax)+'</td><td>'+fmt(p.taxes)+'</td><td>'+fmt(p.postTax)+'</td><td><b>'+fmt(p.net)+'</b></td></tr>';
+ });
+ h += '<tr style="font-weight:700;background:var(--ptint)"><td>TOTALS</td><td></td><td></td><td>'+fmt(ytdVaricent)+'</td><td>'+fmt(ytdGross)+'</td><td>'+fmt(pe.reduce(function(s,p){return s+p.banking},0))+'</td><td>'+fmt(pe.reduce(function(s,p){return s+p.preTax},0))+'</td><td>'+fmt(pe.reduce(function(s,p){return s+p.taxes},0))+'</td><td>'+fmt(pe.reduce(function(s,p){return s+p.postTax},0))+'</td><td>'+fmt(ytdNet)+'</td></tr>';
+ h += '</table></div></div>';
+
+ // Monthly heat map
+ h += '<div class="card"><h3>Monthly Net Pay Heat Map</h3>';
+ var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+ var monthTotals = {};
+ months.forEach(function(m){monthTotals[m]=0});
+ pe.forEach(function(p){ monthTotals[p.month] = (monthTotals[p.month]||0) + p.net; });
+ var maxMonth = Math.max.apply(null, months.map(function(m){return monthTotals[m]})) || 1;
+ h += '<div class="heatmap">';
+ months.forEach(function(m){
+  var v = monthTotals[m];
+  var intensity = v > 0 ? Math.max(0.2, v/maxMonth) : 0.05;
+  var bg = v > 0 ? 'rgba(29,158,117,'+intensity+')' : '#eee';
+  var color = v > 0 ? (intensity > 0.5 ? '#fff' : '#222') : '#999';
+  h += '<div class="hm-cell" style="background:'+bg+';color:'+color+'" title="'+m+': '+fmt(v)+'">'+m+'<br>'+fmtInt(v)+'</div>';
+ });
+ h += '</div></div>';
+
+ $1('#p1').innerHTML = h;
+}
+
+// ══════════════════════════════════
+// TAB 2: PIPELINE
+// ══════════════════════════════════
+var pipeFilter = 'all';
+function setPipeFilter(f){ pipeFilter = f; renderPipe(); }
+
+function renderPipe(){
+ var filtered = pipeFilter === 'all' ? pl : pl.filter(function(c){ return c.status === pipeFilter; });
+ var counts = {all:pl.length};
+ statusOrder.forEach(function(s){ counts[s] = pl.filter(function(c){return c.status===s}).length; });
+
+ var h = '<h2 style="margin-bottom:16px;color:var(--amb)">Pipeline</h2>';
+ h += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">';
+ var filters = [{k:'all',lbl:'All'},{k:'pending',lbl:'Pending'},{k:'submitted',lbl:'Submitted'},{k:'approved',lbl:'Approved'},{k:'issued',lbl:'Issued'},{k:'paid',lbl:'Paid'}];
+ filters.forEach(function(f){
+  var active = pipeFilter === f.k;
+  h += '<button class="btn btn-sm '+(active?'btn-pri':'btn-outline')+'" onclick="setPipeFilter(\''+f.k+'\')">'+f.lbl+' <span style="opacity:.7">('+counts[f.k]+')</span></button>';
+ });
+ h += '</div>';
+ h += '<div style="overflow-x:auto"><table><tr><th>Client</th><th>Product</th><th>Basis</th><th>Amount</th><th>Rate (T4)</th><th>Orig Gross</th><th>Your Share</th><th>Partner Gets</th><th>Split Agent</th><th>Status</th><th>Submitted</th><th>Est. Pay</th><th>Paid In</th><th>Actions</th></tr>';
+ filtered.forEach(function(c){
+  var calc = calcCase(c);
+  var p = findProd(c.product);
+  var rateTxt = p.hardwired ? '0.05% <span class="badge badge-hw">HARDWIRED</span>' : p.flat ? '<span class="badge badge-flat">FLAT FEE</span>' : c.rate + '%';
+  h += '<tr><td><b>'+c.client+'</b></td>';
+  h += '<td style="max-width:160px">'+c.product+'</td>';
+  h += '<td>'+p.basis+'</td>';
+  h += '<td>'+fmt(c.amount)+'</td>';
+  h += '<td>'+rateTxt+'</td>';
+  h += '<td>'+fmt(calc.origGross)+'</td>';
+  h += '<td><b>'+fmt(calc.steveShare)+'</b></td>';
+  h += '<td>'+(calc.partnerGets > 0 ? fmt(calc.partnerGets) : '—')+'</td>';
+  h += '<td>'+(c.splitName ? c.splitName : '—')+'</td>';
+  h += '<td>'+statusBadge(c.status)+(c.status!=='paid'?statusBar(c.status):'')+'</td>';
+  h += '<td>'+c.submitted+'</td>';
+  h += '<td>'+(c.estPay||'—')+'</td>';
+  h += '<td>'+(c.paidIn ? '<span class="badge badge-grn">'+c.paidIn+'</span>' : '—')+'</td>';
+  h += '<td>';
+  if(c.status === 'paid'){
+   h += '<button class="btn btn-sm btn-outline" onclick="unmatchCase('+c.id+')">Unmatch</button>';
+  } else {
+   if(c.status !== 'issued') h += '<button class="btn btn-sm btn-pri" onclick="advanceCase('+c.id+')">Next</button> ';
+   else h += '<button class="btn btn-sm btn-pri" onclick="advanceCase('+c.id+')">Next</button> ';
+   h += '<button class="btn btn-sm btn-outline" style="color:#c0392b" onclick="delCase('+c.id+')">del</button>';
+  }
+  h += '</td></tr>';
+ });
+ h += '</table></div>';
+
+ // Add case form
+ h += '<div class="card" style="margin-top:20px;background:var(--atint);border:1px solid #f0d9a8">';
+ h += '<h3 style="color:var(--amb)">Add New Case</h3>';
+ h += '<div class="form-row">';
+ h += '<div class="form-group"><label>Client Name</label><input id="nc_client" placeholder="e.g. Jane Smith"></div>';
+ h += '<div class="form-group"><label>Product</label><select id="nc_product" onchange="ncProdChange()">'+prodOptions('')+'</select></div>';
+ h += '<div class="form-group"><label>Amount ($)</label><input id="nc_amount" type="number" step="0.01" placeholder="Premium / deposit / flat fee"></div>';
+ h += '<div class="form-group"><label>Rate (%)</label><input id="nc_rate" type="number" step="0.01"></div>';
+ h += '</div>';
+ h += '<div class="form-row">';
+ h += '<div class="form-group"><label>Split Type</label><select id="nc_split"><option value="split">Split (partner gets their %)</option><option value="full">Full (no split)</option></select></div>';
+ h += '<div class="form-group"><label>Split Agent Name</label><input id="nc_splitName" placeholder="Partner name"></div>';
+ h += '<div class="form-group"><label>Split Agent Email</label><input id="nc_splitEmail" placeholder="partner@acg.aaa.com"></div>';
+ h += '<div class="form-group"><label>Submitted Date</label><input id="nc_submitted" type="date"></div>';
+ h += '</div>';
+ h += '<div class="form-row">';
+ h += '<div class="form-group"><label>Est. Pay Date</label><input id="nc_estPay" type="date"></div>';
+ h += '<div class="form-group"><label>Notes</label><input id="nc_notes" placeholder="Optional notes"></div>';
+ h += '</div>';
+ h += '<button class="btn btn-amb" onclick="addCase()" style="margin-top:8px">Add Case to Pipeline</button>';
+ h += '</div>';
+ $1('#p2').innerHTML = h;
+}
+
+function ncProdChange(){
+ var sel = $1('#nc_product').value;
+ var p = findProd(sel);
+ if(p){
+  if(p.hardwired){
+   $1('#nc_rate').value = '0.05';
+   $1('#nc_rate').disabled = true;
+  } else if(p.flat){
+   $1('#nc_rate').value = '0';
+   $1('#nc_rate').disabled = true;
+  } else {
+   $1('#nc_rate').value = p.rate;
+   $1('#nc_rate').disabled = false;
+  }
+ }
+}
+
+function addCase(){
+ var client = $1('#nc_client').value.trim();
+ var product = $1('#nc_product').value;
+ if(!client || !product){ showToast('Please enter client name and select product.', 4000); return; }
+ var p = findProd(product);
+ var c = {
+  id: nextId++,
+  client: client,
+  product: product,
+  amount: parseFloat($1('#nc_amount').value) || 0,
+  rate: p.hardwired ? 0.05 : p.flat ? 0 : (parseFloat($1('#nc_rate').value) || p.rate),
+  split: $1('#nc_split').value,
+  splitName: $1('#nc_splitName').value.trim(),
+  splitEmail: $1('#nc_splitEmail').value.trim(),
+  status: 'pending',
+  submitted: $1('#nc_submitted').value || new Date().toISOString().slice(0,10),
+  estPay: $1('#nc_estPay').value || '',
+  paidIn: '',
+  notes: $1('#nc_notes').value.trim()
+ };
+ pl.push(c);
+
+ // Sale notification mailto
+ if(c.splitEmail){
+  var calc = calcCase(c);
+  var to = settings.mgr1;
+  if(settings.mgr2) to += ',' + settings.mgr2;
+  to += ',' + c.splitEmail;
+  var subj = encodeURIComponent('New Sale - '+c.client+' | '+c.product+' | '+fmt(c.amount));
+  var body = encodeURIComponent(
+   'New Sale Notification\n\nClient: '+c.client+'\nProduct: '+c.product+'\nAmount: '+fmt(c.amount)+'\nRate: '+(p.flat?'Flat Fee':c.rate+'%')+'\nOrig Gross: '+fmt(calc.origGross)+'\nSteve\'s Share ('+settings.yourShare+'%): '+fmt(calc.steveShare)+'\nPartner Share ('+settings.partnerShare+'%): '+fmt(calc.partnerGets)+'\nStatus: '+c.status+'\nSubmitted: '+c.submitted+'\nEst. Pay: '+(c.estPay||'TBD')+'\nNotes: '+(c.notes||'—')+'\n\n— SalesTracker'
+  );
+  var mailto = 'mailto:'+to+'?subject='+subj+'&body='+body;
+  window._saleMailto = mailto;
+  showToast('Case added! <button onclick="openSaleMail()" style="background:none;border:none;color:#90ee90;text-decoration:underline;font-weight:600;cursor:pointer;font-size:12px">Open in Gmail</button> to send sale notification.', 10000);
+ } else {
+  showToast('Case added to pipeline.', 4000);
+ }
+ renderPipe();
+}
+
+function advanceCase(id){
+ pl.forEach(function(c){
+  if(c.id === id){
+   var idx = statusIdx(c.status);
+   if(idx < 4) c.status = statusOrder[idx+1];
+  }
+ });
+ renderPipe();
+}
+
+function delCase(id){
+ pl = pl.filter(function(c){return c.id !== id});
+ renderPipe();
+}
+
+function unmatchCase(id){
+ pl.forEach(function(c){
+  if(c.id === id){ c.status = 'issued'; c.paidIn = ''; }
+ });
+ renderPipe();
+}
+
+// ══════════════════════════════════
+// TAB 3: ADD PAY PERIOD
+// ══════════════════════════════════
+function renderPayEntry(){
+ var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+ var h = '<h2 style="margin-bottom:16px;color:var(--pri)">Add Pay Period</h2>';
+ h += '<div class="grid2">';
+
+ // Panel 1 — Varicent
+ h += '<div class="info-panel"><h4>Varicent Commission Statement</h4>';
+ h += '<div class="form-row"><div class="form-group"><label>Period Label</label><input id="pp_label" placeholder="e.g. Apr P1"></div>';
+ h += '<div class="form-group"><label>Month</label><select id="pp_month">';
+ months.forEach(function(m){ h += '<option value="'+m+'">'+m+'</option>'; });
+ h += '</select></div></div>';
+ h += '<div class="form-row"><div class="form-group"><label>3MMA Credit Amount ($)</label><input id="pp_mma" type="number" step="0.01" oninput="updatePayPreview()"></div>';
+ h += '<div class="form-group"><label>Your Commission — Varicent Paid ($)</label><input id="pp_varicent" type="number" step="0.01" oninput="updatePayPreview()"></div></div>';
+ h += '<div class="form-group"><label>Notes</label><textarea id="pp_notes" rows="2"></textarea></div>';
+ h += '</div>';
+
+ // Panel 2 — AAA Payslip
+ h += '<div style="background:var(--gtint);border:1px solid #b8e6d4;border-radius:var(--radius);padding:14px"><h4 style="color:var(--grn)">AAA Payslip</h4>';
+ h += '<div class="form-row"><div class="form-group"><label>Gross Pay ($) — "Gross Pay (Current)"</label><input id="pp_gross" type="number" step="0.01" oninput="updatePayPreview()"></div>';
+ h += '<div class="form-group"><label>Banking Incentive ($) — "Banking Deposit Incentive"</label><input id="pp_banking" type="number" step="0.01" oninput="updatePayPreview()"></div></div>';
+ h += '<div class="form-row"><div class="form-group"><label>Other Bonuses ($)</label><input id="pp_bonuses" type="number" step="0.01" value="0" oninput="updatePayPreview()"></div>';
+ h += '<div class="form-group"><label>Pre-Tax Deductions ($) — "Pre Tax Deductions (Current)"</label><input id="pp_pretax" type="number" step="0.01" oninput="updatePayPreview()"></div></div>';
+ h += '<div class="form-row"><div class="form-group"><label>Employee Taxes ($) — "Employee Taxes (Current)"</label><input id="pp_taxes" type="number" step="0.01" oninput="updatePayPreview()"></div>';
+ h += '<div class="form-group"><label>Post-Tax Deductions ($) — "Post Tax Deductions (Current)"</label><input id="pp_posttax" type="number" step="0.01" oninput="updatePayPreview()"></div></div>';
+ h += '<div class="form-group"><label>Net Pay ($) — "Net Pay (Current)" (actual deposited)</label><input id="pp_net" type="number" step="0.01" oninput="updatePayPreview()"></div>';
+ h += '</div>';
+
+ h += '</div>'; // end grid2
+
+ // Live preview
+ h += '<div class="preview-box" id="payPreview"><h4>Live Calculation Preview</h4><p style="color:var(--muted)">Enter values above to see calculations...</p></div>';
+
+ // Match suggestions
+ h += '<div id="matchSuggestions"></div>';
+
+ h += '<div style="margin-top:16px"><button class="btn btn-grn" onclick="savePeriod()">Save Pay Period</button></div>';
+
+ $1('#p3').innerHTML = h;
+}
+
+function updatePayPreview(){
+ var varicent = pv('pp_varicent');
+ var gross = pv('pp_gross');
+ var pretax = pv('pp_pretax');
+ var taxes = pv('pp_taxes');
+ var posttax = pv('pp_posttax');
+ var net = pv('pp_net');
+ var mma = pv('pp_mma');
+
+ var origGross = varicent > 0 ? varicent / (settings.yourShare/100) : 0;
+ var partnerGot = origGross - varicent;
+ var modelNet = gross - pretax - taxes - posttax;
+ var diff = Math.abs(net - modelNet);
+ var matchLabel = diff < 1 ? '<span class="green-text" style="font-weight:700">Perfect match</span>' : diff < 10 ? '<span class="amber-text" style="font-weight:700">Close (diff: '+fmt(diff)+')</span>' : (net > 0 ? '<span class="red-text" style="font-weight:700">Check entries (diff: '+fmt(diff)+')</span>' : '—');
+
+ var tierHtml = mma > 0 ? tierLabel(mma) + ' — 3MMA: '+fmtInt(mma) : '—';
+
+ var h = '<h4>Live Calculation Preview</h4>';
+ h += '<table style="max-width:400px">';
+ h += '<tr><td>Your commission (entered)</td><td><b>'+fmt(varicent)+'</b></td></tr>';
+ h += '<tr><td>Original gross (reverse: /0.80)</td><td>'+fmt(origGross)+'</td></tr>';
+ h += '<tr><td>Partner received</td><td>'+fmt(partnerGot)+'</td></tr>';
+ h += '<tr><td colspan="2" style="border-top:2px solid var(--border)"></td></tr>';
+ h += '<tr><td>Model net pay</td><td>'+fmt(modelNet)+'</td></tr>';
+ h += '<tr><td>Actual payslip net</td><td>'+fmt(net)+'</td></tr>';
+ h += '<tr><td>Match</td><td>'+matchLabel+'</td></tr>';
+ h += '<tr><td>Tier</td><td>'+tierHtml+'</td></tr>';
+ h += '</table>';
+
+ $1('#payPreview').innerHTML = h;
+
+ // Pipeline match suggestions
+ if(varicent > 0){
+  var matches = [];
+  pl.forEach(function(c){
+   if(c.status === 'paid') return;
+   var calc = calcCase(c);
+   if(calc.steveShare <= 0) return;
+   var pctDiff = Math.abs(calc.steveShare - varicent) / calc.steveShare;
+   if(pctDiff <= 0.05){
+    matches.push({c:c, calc:calc, pctDiff:pctDiff});
+   }
+  });
+  if(matches.length){
+   var mh = '<div class="match-box" style="margin-top:12px"><h4 style="color:var(--grn)">Pipeline Match Suggestions</h4>';
+   matches.forEach(function(m){
+    var confidence = m.pctDiff < 0.005 ? '<span class="strong">Strong match</span>' : '<span class="possible">Possible match</span>';
+    mh += '<div style="display:flex;align-items:center;gap:10px;margin:8px 0;padding:8px;background:#fff;border-radius:4px">';
+    mh += '<div style="flex:1"><b>'+m.c.client+'</b> — '+m.c.product+'<br>Expected your share: '+fmt(m.calc.steveShare)+' (diff: '+(m.pctDiff*100).toFixed(2)+'%) '+confidence+'</div>';
+    mh += '<button class="btn btn-sm btn-grn" onclick="confirmMatch('+m.c.id+')">Confirm match</button>';
+    mh += '</div>';
+   });
+   mh += '</div>';
+   $1('#matchSuggestions').innerHTML = mh;
+  } else {
+   $1('#matchSuggestions').innerHTML = '';
+  }
+ } else {
+  $1('#matchSuggestions').innerHTML = '';
+ }
+}
+
+function confirmMatch(caseId){
+ var label = $1('#pp_label').value || 'This period';
+ pl.forEach(function(c){
+  if(c.id === caseId){ c.status = 'paid'; c.paidIn = label; }
+ });
+ showToast('Matched! '+pl.find(function(c){return c.id===caseId}).client+' marked as Paid in '+label, 5000);
+ updatePayPreview();
+}
+
+function savePeriod(){
+ var label = $1('#pp_label').value.trim();
+ if(!label){ showToast('Please enter a period label.', 4000); return; }
+ pe.push({
+  id: nextPeId++,
+  label: label,
+  month: $1('#pp_month').value,
+  mma: pv('pp_mma'),
+  varicent: pv('pp_varicent'),
+  gross: pv('pp_gross'),
+  banking: pv('pp_banking'),
+  preTax: pv('pp_pretax'),
+  taxes: pv('pp_taxes'),
+  postTax: pv('pp_posttax'),
+  net: pv('pp_net'),
+  notes: $1('#pp_notes').value.trim()
+ });
+ showToast('Pay period "'+label+'" saved!', 4000);
+ renderPayEntry();
+}
+
+// ══════════════════════════════════
+// TAB 4: RATE TABLE
+// ══════════════════════════════════
+function renderRates(){
+ var cats = ['IUL / Universal Life','Annuities','Life (Whole / Term)','Banking / CD / Other'];
+ var h = '<h2 style="margin-bottom:16px;color:var(--pri)">Rate Table — AAA Field Life Agent T4</h2>';
+ cats.forEach(function(cat){
+  h += '<div class="card"><h3>'+cat+'</h3>';
+  h += '<table><tr><th>Product</th><th>Rate (T4)</th><th>Basis</th><th>Flags</th></tr>';
+  products.forEach(function(p){
+   if(p.cat !== cat) return;
+   var flags = '';
+   if(p.hardwired) flags = '<span class="badge badge-hw">HARDWIRED</span>';
+   else if(p.flat) flags = '<span class="badge badge-flat">FLAT FEE</span>';
+   h += '<tr><td>'+p.name+'</td><td><b>'+(p.flat ? '—' : p.rate + '%')+'</b></td><td>'+p.basis+'</td><td>'+flags+'</td></tr>';
+  });
+  h += '</table></div>';
+ });
+ $1('#p4').innerHTML = h;
+}
+
+// ══════════════════════════════════
+// TAB 5: EMAIL & REPORTS
+// ══════════════════════════════════
+function renderEM(){
+ var h = '<h2 style="margin-bottom:16px;color:var(--dgrn)">Email &amp; Reports</h2>';
+
+ // Settings
+ h += '<div class="card email-settings"><h3>Settings</h3>';
+ h += '<div class="form-row">';
+ h += '<div class="form-group"><label>Your Share %</label><input id="s_share" type="number" value="'+settings.yourShare+'" onchange="settings.yourShare=parseFloat(this.value);settings.partnerShare=100-settings.yourShare"></div>';
+ h += '<div class="form-group"><label>Partner Share %</label><input id="s_pshare" type="number" value="'+settings.partnerShare+'" disabled></div>';
+ h += '<div class="form-group"><label>Manager 1 Email</label><input id="s_mgr1" value="'+settings.mgr1+'" onchange="settings.mgr1=this.value"></div>';
+ h += '<div class="form-group"><label>Manager 2 Email (optional)</label><input id="s_mgr2" value="'+settings.mgr2+'" onchange="settings.mgr2=this.value"></div>';
+ h += '</div>';
+ h += '<div class="form-row">';
+ h += '<div class="form-group"><label>Agent Name</label><input value="'+settings.agentName+'" onchange="settings.agentName=this.value"></div>';
+ h += '<div class="form-group"><label>Branch</label><input value="'+settings.branch+'" onchange="settings.branch=this.value"></div>';
+ h += '<div class="form-group"><label>Agent Email</label><input value="'+settings.agentEmail+'" onchange="settings.agentEmail=this.value"></div>';
+ h += '</div></div>';
+
+ // Report filter + generate
+ h += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;align-items:center">';
+ h += '<button class="btn btn-dgrn" onclick="genReport()">Generate weekly report</button>';
+ h += '<span style="margin-left:10px;font-size:11px;color:var(--muted)">Filter:</span>';
+ var rFilters = [{k:'open',lbl:'Open (not paid)'},{k:'all',lbl:'All'},{k:'pending',lbl:'Pending'},{k:'submitted',lbl:'Submitted'},{k:'approved',lbl:'Approved'},{k:'issued',lbl:'Issued'},{k:'paid',lbl:'Paid'}];
+ rFilters.forEach(function(f){
+  var active = (reportFilter||'open') === f.k;
+  h += ' <button class="btn btn-sm '+(active?'btn-dgrn':'btn-outline')+'" onclick="reportFilter=\''+f.k+'\';genReport()">'+f.lbl+'</button>';
+ });
+ h += '</div>';
+
+ // Report area
+ h += '<div id="reportArea" class="report-area"><p style="color:var(--muted)">Click "Generate weekly report" to build and preview the report here.</p></div>';
+
+ $1('#p5').innerHTML = h;
+}
+
+// ══════════════════════════════════
+// genReport() — GLOBAL, reads live data
+// ══════════════════════════════════
+var reportFilter = 'open';
+
+function genReport(){
+ var f = reportFilter || 'open';
+ var openCases = f === 'open' ? pl.filter(function(c){ return c.status !== 'paid'; })
+  : f === 'all' ? pl
+  : pl.filter(function(c){ return c.status === f; });
+ var totalComm = 0;
+
+ // Build table rows
+ var rows = '';
+ var htmlRows = '';
+ var textRows = '';
+ openCases.forEach(function(c){
+  var calc = calcCase(c);
+  totalComm += calc.steveShare;
+  var agent = c.splitName || '—';
+  rows += '<tr><td>'+c.client+'</td><td>'+c.product+'</td><td>'+fmt(c.amount)+'</td><td><b>'+fmt(calc.steveShare)+'</b></td><td>'+(calc.partnerGets>0?fmt(calc.partnerGets):'—')+'</td><td>'+agent+'</td><td>'+statusBadge(c.status)+'</td><td>'+c.submitted+'</td><td>'+(c.estPay||'TBD')+'</td></tr>';
+  textRows += c.client+' | '+c.product+' | '+fmt(c.amount)+' | '+fmt(calc.steveShare)+' | '+agent+' | '+c.status+' | '+c.submitted+' | '+(c.estPay||'TBD')+'\n';
+  htmlRows += '<tr><td style="padding:6px;border:1px solid #ddd">'+c.client+'</td><td style="padding:6px;border:1px solid #ddd">'+c.product+'</td><td style="padding:6px;border:1px solid #ddd">'+fmt(c.amount)+'</td><td style="padding:6px;border:1px solid #ddd;font-weight:bold">'+fmt(calc.steveShare)+'</td><td style="padding:6px;border:1px solid #ddd">'+(calc.partnerGets>0?fmt(calc.partnerGets):'—')+'</td><td style="padding:6px;border:1px solid #ddd">'+agent+'</td><td style="padding:6px;border:1px solid #ddd">'+c.status+'</td><td style="padding:6px;border:1px solid #ddd">'+c.submitted+'</td><td style="padding:6px;border:1px solid #ddd">'+(c.estPay||'TBD')+'</td></tr>';
+ });
+
+ // Stats
+ var latestMma = pe.length ? pe[pe.length-1].mma : 0;
+ var ytdNet = pe.reduce(function(s,p){return s+p.net},0);
+ var periodsCount = pe.length;
+ var projAnnual = periodsCount > 0 ? (ytdNet / periodsCount) * 24 : 0;
+
+ // Render on screen
+ var filterLabel = f === 'open' ? 'Open Cases' : f === 'all' ? 'All Cases' : f.charAt(0).toUpperCase()+f.slice(1)+' Cases';
+ var h = '<h3 style="color:var(--dgrn);margin-bottom:12px">Weekly Pipeline Report — '+filterLabel+' — '+new Date().toLocaleDateString()+'</h3>';
+ h += '<table><tr><th>Client</th><th>Product</th><th>Amount</th><th>Your Comm</th><th>Partner Gets</th><th>Split Agent</th><th>Status</th><th>Submitted</th><th>Est. Pay</th></tr>';
+ h += rows;
+ h += '<tr style="font-weight:700;background:var(--gtint)"><td colspan="3">TOTALS ('+openCases.length+' cases)</td><td>'+fmt(totalComm)+'</td><td colspan="5"></td></tr>';
+ h += '</table>';
+
+ h += '<table style="margin-top:14px;max-width:400px"><tr><th colspan="2">Stats</th></tr>';
+ h += '<tr><td>3MMA / Tier</td><td>'+fmtInt(latestMma)+' / '+tierText(latestMma)+'</td></tr>';
+ h += '<tr><td>YTD Net Deposited</td><td>'+fmt(ytdNet)+'</td></tr>';
+ h += '<tr><td>Projected Annual Net</td><td>'+fmt(projAnnual)+'</td></tr>';
+ h += '<tr><td>$100K Goal</td><td>'+(projAnnual/1000).toFixed(1)+'% ('+(projAnnual>=100000?'<span class="green-text">On track</span>':'<span class="amber-text">Below target</span>')+')</td></tr>';
+ h += '</table>';
+
+ // Plain text for mailto — keep short to stay under URL limits
+ var plainText = 'Weekly Pipeline Report - '+new Date().toLocaleDateString()+'\n\n';
+ plainText += openCases.length+' open cases, total your commission: '+fmt(totalComm)+'\n\n';
+ openCases.forEach(function(c){
+  var calc = calcCase(c);
+  plainText += '- '+c.client+' | '+fmt(calc.steveShare)+' | '+c.status+'\n';
+ });
+ plainText += '\n3MMA: '+fmtInt(latestMma)+' ('+tierText(latestMma)+')\nYTD Net: '+fmt(ytdNet)+'\nProjected Annual: '+fmt(projAnnual)+'\n\n- SalesTracker';
+
+ var to = settings.mgr1;
+ if(settings.mgr2) to += ',' + settings.mgr2;
+ var mailSubj = encodeURIComponent('Weekly Pipeline Report - '+new Date().toLocaleDateString());
+ var mailBody = encodeURIComponent(plainText);
+ // Truncate if mailto URL would exceed browser limit
+ var mailtoUrl = 'mailto:'+to+'?subject='+mailSubj+'&body='+mailBody;
+ if(mailtoUrl.length > 1900){
+  mailBody = encodeURIComponent(plainText.substring(0, 800) + '\n\n[Report truncated - see full report in SalesTracker]');
+  mailtoUrl = 'mailto:'+to+'?subject='+mailSubj+'&body='+mailBody;
+ }
+
+ // HTML for Gmail copy
+ var gmailHtml = '<div style="font-family:system-ui,sans-serif;font-size:13px">';
+ gmailHtml += '<h2 style="color:#0F6E56">Weekly Pipeline Report — '+new Date().toLocaleDateString()+'</h2>';
+ gmailHtml += '<table style="border-collapse:collapse;width:100%"><tr style="background:#EEEDFE"><th style="padding:6px;border:1px solid #ddd;text-align:left">Client</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Product</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Amount</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Your Comm</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Partner Gets</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Split Agent</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Status</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Submitted</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Est. Pay</th></tr>';
+ gmailHtml += htmlRows;
+ gmailHtml += '<tr style="font-weight:bold;background:#F0FBF7"><td style="padding:6px;border:1px solid #ddd" colspan="3">TOTALS ('+openCases.length+' cases)</td><td style="padding:6px;border:1px solid #ddd">'+fmt(totalComm)+'</td><td style="padding:6px;border:1px solid #ddd" colspan="5"></td></tr></table>';
+ gmailHtml += '<br><table style="border-collapse:collapse"><tr><td style="padding:4px 12px;font-weight:bold">3MMA/Tier</td><td style="padding:4px 12px">'+fmtInt(latestMma)+' / '+tierText(latestMma)+'</td></tr>';
+ gmailHtml += '<tr><td style="padding:4px 12px;font-weight:bold">YTD Net</td><td style="padding:4px 12px">'+fmt(ytdNet)+'</td></tr>';
+ gmailHtml += '<tr><td style="padding:4px 12px;font-weight:bold">Projected Annual</td><td style="padding:4px 12px">'+fmt(projAnnual)+'</td></tr></table>';
+ gmailHtml += '<p style="color:#666;font-size:11px;margin-top:12px">Generated by SalesTracker</p></div>';
+
+ // Store mailto and gmail html globally so buttons work
+ window._reportMailto = mailtoUrl;
+ window._gmailHtml = gmailHtml;
+
+ // Action buttons
+ h += '<div style="margin-top:16px;display:flex;gap:10px">';
+ h += '<button class="btn btn-pri" onclick="openReportMail()">Open in Gmail</button>';
+ h += '<button class="btn btn-dgrn" onclick="copyGmailHtml()">Copy HTML for Gmail</button>';
+ h += '<button class="btn btn-outline btn-sm" onclick="debugMailto()" style="margin-left:8px">Debug mailto</button>';
+ h += '</div>';
+
+ $1('#reportArea').innerHTML = h;
+}
+
+function openReportMail(){
+ if(window._reportMailto){
+  // Extract parts from mailto URL and open Gmail compose directly
+  var url = window._reportMailto;
+  var to = url.split('?')[0].replace('mailto:','');
+  var params = new URLSearchParams(url.split('?')[1] || '');
+  var subj = params.get('subject') || '';
+  var body = params.get('body') || '';
+  var gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1'
+   + '&to=' + encodeURIComponent(to)
+   + '&su=' + encodeURIComponent(subj)
+   + '&body=' + encodeURIComponent(body);
+  window.open(gmailUrl, '_blank');
+ }
+}
+
+function openSaleMail(){
+ if(window._saleMailto){
+  var url = window._saleMailto;
+  var to = url.split('?')[0].replace('mailto:','');
+  var params = new URLSearchParams(url.split('?')[1] || '');
+  var subj = params.get('subject') || '';
+  var body = params.get('body') || '';
+  var gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1'
+   + '&to=' + encodeURIComponent(to)
+   + '&su=' + encodeURIComponent(subj)
+   + '&body=' + encodeURIComponent(body);
+  window.open(gmailUrl, '_blank');
+ }
+}
+
+function debugMailto(){
+ var url = window._reportMailto || '(not set)';
+ alert('Mailto URL length: '+url.length+'\n\nFirst 300 chars:\n'+url.substring(0,300));
+}
+
+function copyGmailHtml(){
+ if(window._gmailHtml){
+  var blob = new Blob([window._gmailHtml], {type:'text/html'});
+  var item = new ClipboardItem({'text/html': blob, 'text/plain': new Blob([window._gmailHtml], {type:'text/plain'})});
+  navigator.clipboard.write([item]).then(function(){
+   showToast('HTML copied to clipboard! Paste into Gmail compose.', 5000);
+  }).catch(function(){
+   // Fallback: show html in a textarea
+   var ta = document.createElement('textarea');
+   ta.value = window._gmailHtml;
+   ta.style.cssText = 'width:100%;height:200px;margin-top:10px;font-size:11px';
+   $1('#reportArea').appendChild(ta);
+   ta.select();
+   showToast('Select all and copy the HTML below.', 5000);
+  });
+ }
+}
+
+// ── INIT ──
+renderWalkthrough();
+</script>
+</body>
+</html>

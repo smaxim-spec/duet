@@ -2,9 +2,20 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.15.2` · Updated 2026-05-05
+> **Current version:** `v1.15.6` · Updated 2026-05-07
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.15.6 — 2026-05-07 — Tap-to-call opens disposition prompt
+
+When you tap a lead's "📞 Call" button on phone or a name in Today's Priorities on desktop, the dialer opens **and** the disposition prompt appears so you can log the outcome (No Answer / Left VM / Bad # / Connected / Discovery / Appt Set / Nurturing / Lost) without hopping to lead detail.
+
+- Phone Call Queue 📞 Call button now triggers the prompt
+- Desktop Today's Priorities name tap-to-dial now triggers the prompt
+- Picking a disposition logs the call and updates stage; "Appt Set" also opens Quick Book pre-linked to the lead
+- Refactored: extracted shared `showCallOutcomePrompt()` so `dialLead()` (Calley speed-to-lead) and the new tap-to-call entrypoints use the same UI
 
 ---
 

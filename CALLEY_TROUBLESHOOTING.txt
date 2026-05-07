@@ -1,0 +1,53 @@
+CALLEY PHONE SYNC TROUBLESHOOTING
+===================================
+Last updated: 2026-03-31
+
+PROBLEM: Leads pushed from Duet show on Calley website but NOT on the phone app.
+
+FIX (Step by step):
+1. Open Calley app on phone
+2. Go to Settings → Log Out
+3. Force close the Calley app (swipe away from app switcher)
+4. Reopen Calley app
+5. Log back in with your credentials
+6. The "Duet" list should now appear with leads
+
+IF THAT DOESN'T WORK:
+- Delete and reinstall the Calley app on your phone
+- Check Calley website → make sure the "Duet" list status is "Active" (not "Pending")
+- Pull to refresh the list screen in the mobile app
+- Make sure your Calley subscription (Pro Plan) is active
+
+CALLEY ACCOUNT INFO:
+- Auth Token: 42311d3bb9d14e75b076c1350d6550ef
+- Duet List ID: mcl-E99A0084-F93E-4D5F-80AC-1F4F9A99FEAA
+- API Proxy: localhost:8787/calley-proxy
+- Plan: Pro
+
+PUSH WORKFLOW (from Duet):
+1. Go to My CRM tab
+2. Use filters to select which leads you want to push
+3. Click the orange "Push to Calley" bar
+4. Adjust the count if needed, then confirm
+5. After push completes, do the phone sync steps above if list doesn't appear
+
+SYNC RESULTS BACK (from Calley to Duet):
+1. After finishing calls in Calley app, go to My CRM tab
+2. Click "Sync Calley" button in the orange bar
+3. Duet will pull call results and update dispositions/stages automatically
+
+DISPOSITION MAPPING (Calley → Duet):
+  Calley            Duet
+  ------            ----
+  No Answer      →  No Answer
+  Left VM        →  Left VM
+  Connected      →  Connected
+  Discovery      →  Discovery
+  Appt Set       →  Appt Set
+  Quoted         →  Quoted
+  Nurturing      →  Nurturing
+  Bad Number     →  Bad #
+  Lost           →  Lost
+
+NOTE: Calley sometimes spells "Nurturing" as "Nuturing" (no 'r').
+Both spellings are handled in Duet's mapping.

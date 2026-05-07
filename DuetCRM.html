@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.15.5';
+var APP_VERSION = 'v1.15.6';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.15.6', date:'2026-05-07', notes:[
+  'Tap-to-call now also opens the call disposition prompt — log No Answer, Left VM, Bad #, Connected, Discovery, Appt Set, Nurturing, or Lost without going to lead detail',
+  'Wired into the phone Call Queue 📞 Call button and the desktop Today\'s Priorities name links',
+  'Picking a disposition logs the call and updates the stage; "Appt Set" also opens Quick Book pre-linked to the lead',
+  'Refactored: extracted shared showCallOutcomePrompt() helper so dialLead() and tap-to-call use the same UI'
+ ]},
  {ver:'v1.15.5', date:'2026-05-07', notes:[
   'Today\'s Priorities names are now tap-to-dial: click any name in quoted/meeting/callback lists to open the phone dialer with that lead\'s number',
   'Right-click on a name to open the lead\'s detail page instead of dialing',
@@ -6877,7 +6883,7 @@ function renderPhoneApp(){
    h += '<div style="font-size:11px;color:var(--muted)">'+ escapeHtml(reason) +'</div>';
    h += '</div>';
    if(phNorm){
-    h += '<a href="tel:'+ phNorm +'" style="background:var(--grn);color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;flex-shrink:0">📞 Call</a>';
+    h += '<a href="tel:'+ phNorm +'" onclick="setTimeout(function(){showCallOutcomePrompt('+ lead.id +')},50)" style="background:var(--grn);color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;flex-shrink:0">📞 Call</a>';
    }
    h += '</div>';
   });
@@ -7323,7 +7329,7 @@ function renderCallQueue(){
    // No phone — just open lead detail on click
    return '<a href="javascript:void(0)" onclick="crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px">'+nm+'</a>';
   }
-  return '<a href="tel:'+phNorm+'" oncontextmenu="event.preventDefault();crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px" title="Tap to call · Right-click to open lead">'+nm+'</a>';
+  return '<a href="tel:'+phNorm+'" onclick="setTimeout(function(){showCallOutcomePrompt('+l.id+')},50)" oncontextmenu="event.preventDefault();crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px" title="Tap to call · Right-click to open lead">'+nm+'</a>';
  }
  function _bfNameList(arr){ return arr.map(_bfNameLink).join(', '); }
 
@@ -11754,10 +11760,17 @@ function dialLead(phone, leadId){
  dismissDialPrompt();
  // Open dialer
  window.open('tel:' + phone.replace(/[^+\d]/g, ''));
- // Show persistent disposition toast — do NOT pre-log anything
+ showCallOutcomePrompt(leadId);
+}
+
+// Reusable disposition toast — used after any tap-to-call so the user can
+// log No Answer / Left VM / Connected / etc. without going to lead detail.
+// Does NOT pre-log anything; user picks the actual outcome.
+function showCallOutcomePrompt(leadId){
  var lead = leads.find(function(l){ return l.id === leadId; });
- var name = lead ? lead.name : '';
- var stage = lead ? lead.stage : 'new';
+ if(!lead) return;
+ var name = lead.name || '';
+ var stage = lead.stage || 'new';
  var stageLabel = CRM_STAGE_LABELS[stage] || stage;
  var html = '<div style="margin-bottom:6px"><b>'+name+'</b> — <span style="background:'+CRM_STAGE_COLORS[stage]+';color:#fff;padding:1px 6px;border-radius:4px;font-size:11px">'+stageLabel+'</span> — What happened?</div>';
  html += '<div style="margin-bottom:8px"><input id="stl_notes" placeholder="Add call notes (optional)..." style="width:100%;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--txt)" onclick="event.stopPropagation()"></div>';
