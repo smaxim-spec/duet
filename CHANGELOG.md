@@ -2,9 +2,18 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.15.6` · Updated 2026-05-07
+> **Current version:** `v1.15.7` · Updated 2026-05-07
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.15.7 — 2026-05-07 — Speed up disposition prompt on iOS
+
+The new tap-to-call disposition toast (v1.15.6) felt sluggish on iPhone — toast only appeared *after* dismissing the native phone-call confirmation dialog. Root cause: the `setTimeout(..., 50)` I wrapped the call in got paused by Safari during the `tel:` handoff to the dialer.
+
+- Fix: render the toast synchronously in onclick (no setTimeout) so it appears the instant you tap, before iOS hands control to the dialer
+- Tightened toast slide-in from 0.3s to 0.12s for extra snap
 
 ---
 

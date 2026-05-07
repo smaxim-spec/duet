@@ -147,7 +147,7 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 .badge-flat{background:#e0ecff;color:#1a5ab8;border:1px solid #1a5ab8}
 .progress-bar{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:4px}
 .progress-fill{height:100%;border-radius:4px;transition:width .3s}
-.toast{position:fixed;top:20px;right:20px;background:#1a1a1a;color:#fff;padding:14px 20px;border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,.25);z-index:9999;max-width:400px;font-size:12px;animation:slideIn .3s}
+.toast{position:fixed;top:20px;right:20px;background:#1a1a1a;color:#fff;padding:14px 20px;border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,.25);z-index:9999;max-width:400px;font-size:12px;animation:slideIn .12s ease-out}
 @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 .qb-fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:var(--pri);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:9000;transition:transform .2s}
 .qb-fab:hover{transform:scale(1.1)}
@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.15.6';
+var APP_VERSION = 'v1.15.7';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.15.7', date:'2026-05-07', notes:[
+  'Speed up tap-to-call disposition prompt — was lagging on iOS because the 50ms setTimeout got paused while Safari handed off to the phone dialer (toast only appeared after dismissing the call confirmation)',
+  'Fix: render the disposition toast synchronously in onclick, no setTimeout',
+  'Tightened toast slide-in animation from 0.3s to 0.12s for snappier feel'
+ ]},
  {ver:'v1.15.6', date:'2026-05-07', notes:[
   'Tap-to-call now also opens the call disposition prompt — log No Answer, Left VM, Bad #, Connected, Discovery, Appt Set, Nurturing, or Lost without going to lead detail',
   'Wired into the phone Call Queue 📞 Call button and the desktop Today\'s Priorities name links',
@@ -6883,7 +6888,7 @@ function renderPhoneApp(){
    h += '<div style="font-size:11px;color:var(--muted)">'+ escapeHtml(reason) +'</div>';
    h += '</div>';
    if(phNorm){
-    h += '<a href="tel:'+ phNorm +'" onclick="setTimeout(function(){showCallOutcomePrompt('+ lead.id +')},50)" style="background:var(--grn);color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;flex-shrink:0">📞 Call</a>';
+    h += '<a href="tel:'+ phNorm +'" onclick="showCallOutcomePrompt('+ lead.id +')" style="background:var(--grn);color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;flex-shrink:0">📞 Call</a>';
    }
    h += '</div>';
   });
@@ -7329,7 +7334,7 @@ function renderCallQueue(){
    // No phone — just open lead detail on click
    return '<a href="javascript:void(0)" onclick="crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px">'+nm+'</a>';
   }
-  return '<a href="tel:'+phNorm+'" onclick="setTimeout(function(){showCallOutcomePrompt('+l.id+')},50)" oncontextmenu="event.preventDefault();crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px" title="Tap to call · Right-click to open lead">'+nm+'</a>';
+  return '<a href="tel:'+phNorm+'" onclick="showCallOutcomePrompt('+l.id+')" oncontextmenu="event.preventDefault();crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px" title="Tap to call · Right-click to open lead">'+nm+'</a>';
  }
  function _bfNameList(arr){ return arr.map(_bfNameLink).join(', '); }
 
