@@ -2,9 +2,37 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.16.2` · Updated 2026-05-07
+> **Current version:** `v1.16.3` · Updated 2026-05-07
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.16.3 — 2026-05-07 — Weekly Manager Report rebuild (Phase 3 of 3)
+
+Closes the two-status refactor. The Weekly Manager Report gets a new top-section "🆕 Won Activity This Week" — flat table with both Opportunity and Policy explicit per row. Activity-based: rows naturally drop off the report once they're settled, so the manager sees only what changed (not a stale snapshot of every Won lead ever).
+
+**Filter rule** — row appears when, in the report week (Fri-Thu):
+
+- `stage` went to Won (`stageEnteredDate` in window)
+- `stage` went to Lost (`stageEnteredDate` in window)
+- `policyStatus` changed (`policyStatusChangedDate` in window)
+- A `DECLINE: ...` historyNote was added
+
+**Columns:** `Client | Premium | Product | Agent | Opportunity | Policy | Change | Notes`
+
+The `Notes` column auto-populates with the most recent decline reason from `historyNotes` when `policyStatus = declined` — so manager sees "Carrier — health rating" alongside the 📋 Declined badge in one row.
+
+**Sort order:** 🆕 New Win → 🔄 Policy advance → 💰 Settled → ❌ Declined → 📉 Lost
+
+**Footer counter:**
+
+- `🕒 In-flight: N (oldest X days)` — Won leads with policy not yet settled
+- `⚠️ Stale (>30d no movement): N` — first 3 names listed for action
+
+Same flat table is rendered into the Gmail HTML body, so "Open in Gmail" / "Copy HTML for Gmail" both deliver the new report to the manager.
+
+The existing "Cases Submitted This Week" + "All Open Cases" + "CRM Activity stats" sections remain in the report (for commission detail). The new section sits at the top.
 
 ---
 

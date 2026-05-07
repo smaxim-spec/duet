@@ -313,9 +313,20 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.2';
+var APP_VERSION = 'v1.16.3';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.16.3', date:'2026-05-07', notes:[
+  'NEW: Weekly Manager Report — "🆕 Won Activity This Week" flat-table section (Phase 3 of two-status refactor)',
+  'Activity-based filter — a row appears when a lead moved to Won, had a policy status change, was Lost, or had a DECLINE reason added in the report week (Fri-Thu)',
+  'Naturally bounded — long-stale Won-but-Approved leads do NOT appear unless they move; report stays scannable',
+  'Columns: Client | Premium | Product | Agent | Opportunity | Policy | Change | Notes — both opportunity AND policy explicit on every row',
+  'Notes column auto-populates with the most recent DECLINE reason from historyNotes when policy = declined',
+  'Sort order: 🆕 New Win → 🔄 Policy advance → 💰 Settled → ❌ Declined → 📉 Lost',
+  'Footer counter: 🕒 In-flight count + oldest-days, ⚠️ Stale (>30d no movement) with first 3 names',
+  'Mirrored into the Gmail HTML body so the manager email contains the same flat table — open in Gmail / Copy HTML buttons keep working',
+  'Existing "Cases Submitted This Week" + "All Open Cases" + "CRM Activity stats" sections remain untouched (kept for commission detail)'
+ ]},
  {ver:'v1.16.2', date:'2026-05-07', notes:[
   'Fix: "No Pipeline Case Found" warning + "+ Create Case" button were misfiring on Won leads whose DuetBooks case was created manually (not via the CRM convertToPipeline path) — those cases never landed in the local pl mirror, so the CRM thought no case existed even though DuetBooks had it',
   'Fix: presence-of-case detection now checks both the local pl array AND lead.policyStatus (which DuetBooks stamps via push-back) — either signal confirms the DuetBooks case exists',
@@ -3377,8 +3388,113 @@ function genReport(weekStartYMDArg){
 
  h += '</div>';
 
+ // ═══════════════════════════════════════════════════════════════
+ // WON ACTIVITY THIS WEEK — activity-based on leads (two-status model)
+ // A lead row appears if any of these happened in the report week (Fri-Thu):
+ //   • stage went to 'won' or 'lost' (stageEnteredDate in window)
+ //   • policyStatus changed (policyStatusChangedDate in window)
+ //   • a "DECLINE: ..." historyNote was added
+ // Naturally bounded — long-stale Won-but-Approved leads don't appear unless they move.
+ // Footer counter shows total in-flight + stale (>30d no movement) for visibility.
+ // ═══════════════════════════════════════════════════════════════
+ var _activityEntries = (function(){
+  var byLead = {};
+  (leads || []).forEach(function(l){
+   if(!l) return;
+   var changes = [];
+   if(l.stage === 'won' && l.stageEnteredDate >= thisThursISO && l.stageEnteredDate <= weekEndYMD+'T23:59:59.999Z'){
+    changes.push('🆕 New Win');
+   }
+   if(l.stage === 'lost' && l.stageEnteredDate >= thisThursISO && l.stageEnteredDate <= weekEndYMD+'T23:59:59.999Z'){
+    changes.push('📉 Lost');
+   }
+   if(l.policyStatus && l.policyStatusChangedDate && l.policyStatusChangedDate >= thisThursISO && l.policyStatusChangedDate <= weekEndYMD+'T23:59:59.999Z'){
+    var psLbl = POLICY_STATUS_LABELS[l.policyStatus] || l.policyStatus;
+    if(l.policyStatus === 'declined') changes.push('❌ Policy Declined');
+    else if(l.policyStatus === 'paid' || l.policyStatus === 'paid-partial') changes.push('💰 ' + psLbl);
+    else changes.push('🔄 Policy → ' + psLbl);
+   }
+   var declineNoteThisWeek = (l.historyNotes || []).find(function(n){
+    return n && n.text && (n.text+'').indexOf('DECLINE:') === 0
+     && n.date >= thisThursISO && n.date <= weekEndYMD+'T23:59:59.999Z';
+   });
+   if(declineNoteThisWeek && changes.indexOf('❌ Policy Declined') < 0){
+    changes.push('📝 Decline reason added');
+   }
+   if(changes.length > 0) byLead[l.id] = {lead: l, changes: changes};
+  });
+  var sortRank = function(reasons){
+   if(reasons.indexOf('🆕 New Win') >= 0) return 1;
+   if(reasons.some(function(r){return r.indexOf('💰') === 0})) return 3;
+   if(reasons.some(function(r){return r.indexOf('❌') === 0})) return 4;
+   if(reasons.indexOf('📉 Lost') >= 0) return 5;
+   return 2;
+  };
+  var entries = Object.keys(byLead).map(function(k){return byLead[k]});
+  entries.sort(function(a,b){ return sortRank(a.changes) - sortRank(b.changes); });
+  return entries;
+ })();
+
+ // In-flight + stale counter (across all weeks, not just this one — for footer)
+ var _inFlight = (leads || []).filter(function(l){
+  if(!l || l.stage !== 'won') return false;
+  var ps = l.policyStatus || '';
+  return ps !== 'paid' && ps !== 'paid-partial' && ps !== 'declined';
+ });
+ var _oldestInFlightDays = _inFlight.reduce(function(max,l){
+  var d = l.stageEnteredDate || l.created;
+  if(!d) return max;
+  return Math.max(max, Math.floor((Date.now() - new Date(d).getTime()) / 86400000));
+ }, 0);
+ var _staleInFlight = _inFlight.filter(function(l){
+  var d = l.policyStatusChangedDate || l.stageEnteredDate || l.created;
+  if(!d) return false;
+  return (Date.now() - new Date(d).getTime()) / 86400000 > 30;
+ });
+
+ h += '<h4 style="color:var(--grn);margin-bottom:6px">🆕 Won Activity This Week — '+weekLabel+' ('+_activityEntries.length+')</h4>';
+ h += '<p style="font-size:11px;color:var(--muted);margin:0 0 6px 0">Activity-based: row appears when a lead moved to Won, had a policy status change, was Lost, or had a DECLINE reason added this week.</p>';
+ if(_activityEntries.length === 0){
+  h += '<p style="color:var(--muted);font-size:12px">No activity this week.</p>';
+ } else {
+  h += '<table><tr><th>Client</th><th>Premium</th><th>Product</th><th>Agent</th><th>Opportunity</th><th>Policy</th><th>Change</th><th>Notes</th></tr>';
+  _activityEntries.forEach(function(e){
+   var l = e.lead;
+   var oppLbl = CRM_STAGE_LABELS[l.stage] || l.stage;
+   var psLbl = l.policyStatus ? (POLICY_STATUS_LABELS[l.policyStatus] || l.policyStatus) : '—';
+   var prem = l.estPremium ? fmt(parseFloat(l.estPremium)) : '—';
+   var prod = l.selectedProduct || '—';
+   var agent = l.agent || '—';
+   var notesCell = '';
+   if(l.policyStatus === 'declined'){
+    var declineNote = (l.historyNotes || []).slice().reverse().find(function(n){
+     return n && n.text && (n.text+'').indexOf('DECLINE:') === 0;
+    });
+    if(declineNote) notesCell = escapeHtml((declineNote.text+'').replace(/^DECLINE:\s*/, ''));
+   }
+   var oppCol = CRM_STAGE_COLORS[l.stage] || '#7f8c8d';
+   var psCol = l.policyStatus ? (POLICY_STATUS_COLORS[l.policyStatus] || '#7f8c8d') : '';
+   h += '<tr>';
+   h += '<td>'+escapeHtml(l.name)+'</td>';
+   h += '<td>'+prem+'</td>';
+   h += '<td>'+escapeHtml(prod)+'</td>';
+   h += '<td>'+escapeHtml(agent)+'</td>';
+   h += '<td><span class="badge" style="background:'+oppCol+';color:#fff;font-size:9px;padding:1px 5px">'+oppLbl+'</span></td>';
+   h += '<td>'+(l.policyStatus ? '<span class="badge" style="background:'+psCol+';color:#fff;font-size:9px;padding:1px 5px">'+psLbl+'</span>' : '—')+'</td>';
+   h += '<td style="font-size:11px">'+e.changes.join(' · ')+'</td>';
+   h += '<td style="font-size:11px;color:var(--muted)">'+notesCell+'</td>';
+   h += '</tr>';
+  });
+  h += '</table>';
+ }
+ h += '<p style="font-size:11px;color:var(--muted);margin-top:6px">';
+ h += '🕒 In-flight (Won, policy not settled): <b>'+_inFlight.length+'</b>'+(_inFlight.length>0?' (oldest '+_oldestInFlightDays+' day'+(_oldestInFlightDays===1?'':'s')+')':'')+'.  ';
+ h += '⚠️ Stale (&gt;30d no movement): <b>'+_staleInFlight.length+'</b>';
+ if(_staleInFlight.length > 0) h += ' — '+_staleInFlight.slice(0,3).map(function(l){return escapeHtml(l.name)}).join(', ')+(_staleInFlight.length>3?', …':'');
+ h += '</p>';
+
  // Cases Submitted This Week
- h += '<h4 style="color:var(--pri);margin-bottom:8px">Cases Submitted This Week — '+filterLabel+'</h4>';
+ h += '<h4 style="color:var(--pri);margin-bottom:8px;margin-top:18px">Cases Submitted This Week — '+filterLabel+'</h4>';
  if(openCases.length === 0) h += '<p style="color:var(--muted);font-size:12px">No cases submitted during this period ('+weekLabel+').</p>';
  h += '<table><tr><th>Client</th><th>Product</th><th>Amount</th><th>Your Comm</th><th>Partner Gets</th><th>Split Agent</th><th>Status</th><th>Submitted</th><th>Est. Pay</th></tr>';
  h += rows;
@@ -3501,6 +3617,52 @@ function genReport(weekStartYMDArg){
  gmailHtml += '<div style="border-left:4px solid '+paceColor+';padding:8px 12px;margin-top:8px;font-size:13px;font-weight:500;color:#333">'+motivMsg.replace(/[🏆🔥💪⚡🎯]/g,'').trim()+'</div>';
 
  gmailHtml += '</td></tr></table>';
+
+ // ── EMAIL: Won Activity This Week (flat table — both Opportunity + Policy columns) ──
+ gmailHtml += '<h3 style="color:#1D9E75;font-size:14px;margin-bottom:4px">🆕 Won Activity This Week ('+_activityEntries.length+')</h3>';
+ gmailHtml += '<p style="color:#666;font-size:11px;margin:0 0 6px 0">Activity-based: row appears when a lead moved to Won, had a policy status change, was Lost, or had a DECLINE reason added this week.</p>';
+ if(_activityEntries.length === 0){
+  gmailHtml += '<p style="color:#666;font-size:12px">No activity this week.</p>';
+ } else {
+  gmailHtml += '<table style="border-collapse:collapse;width:100%;font-size:12px"><tr style="background:#F0FBF7">';
+  ['Client','Premium','Product','Agent','Opportunity','Policy','Change','Notes'].forEach(function(col){
+   gmailHtml += '<th style="padding:6px;border:1px solid #ddd;text-align:left">'+col+'</th>';
+  });
+  gmailHtml += '</tr>';
+  _activityEntries.forEach(function(e){
+   var l = e.lead;
+   var oppLbl = CRM_STAGE_LABELS[l.stage] || l.stage;
+   var psLbl = l.policyStatus ? (POLICY_STATUS_LABELS[l.policyStatus] || l.policyStatus) : '—';
+   var prem = l.estPremium ? fmt(parseFloat(l.estPremium)) : '—';
+   var prod = l.selectedProduct || '—';
+   var agent = l.agent || '—';
+   var notesCell = '';
+   if(l.policyStatus === 'declined'){
+    var declineNote = (l.historyNotes || []).slice().reverse().find(function(n){
+     return n && n.text && (n.text+'').indexOf('DECLINE:') === 0;
+    });
+    if(declineNote) notesCell = escapeHtml((declineNote.text+'').replace(/^DECLINE:\s*/, ''));
+   }
+   var td = 'padding:6px;border:1px solid #ddd';
+   gmailHtml += '<tr>';
+   gmailHtml += '<td style="'+td+';font-weight:bold">'+escapeHtml(l.name)+'</td>';
+   gmailHtml += '<td style="'+td+'">'+prem+'</td>';
+   gmailHtml += '<td style="'+td+'">'+escapeHtml(prod)+'</td>';
+   gmailHtml += '<td style="'+td+'">'+escapeHtml(agent)+'</td>';
+   gmailHtml += '<td style="'+td+'">'+oppLbl+'</td>';
+   gmailHtml += '<td style="'+td+';color:'+(l.policyStatus==='declined'?'#c0392b':l.policyStatus==='paid'||l.policyStatus==='paid-partial'?'#1D9E75':'#333')+';font-weight:'+(l.policyStatus==='declined'||l.policyStatus==='paid'?'bold':'normal')+'">'+psLbl+'</td>';
+   gmailHtml += '<td style="'+td+'">'+e.changes.join(' · ')+'</td>';
+   gmailHtml += '<td style="'+td+';color:#c0392b">'+notesCell+'</td>';
+   gmailHtml += '</tr>';
+  });
+  gmailHtml += '</table>';
+ }
+ gmailHtml += '<p style="color:#666;font-size:11px;margin-top:6px">';
+ gmailHtml += '🕒 In-flight (Won, policy not settled): <b>'+_inFlight.length+'</b>'+(_inFlight.length>0?' (oldest '+_oldestInFlightDays+' day'+(_oldestInFlightDays===1?'':'s')+')':'')+'. &nbsp; ';
+ gmailHtml += '⚠️ Stale (&gt;30d no movement): <b>'+_staleInFlight.length+'</b>';
+ if(_staleInFlight.length > 0) gmailHtml += ' — '+_staleInFlight.slice(0,3).map(function(l){return escapeHtml(l.name)}).join(', ')+(_staleInFlight.length>3?', …':'');
+ gmailHtml += '</p><br>';
+
  gmailHtml += '<h3 style="color:#534AB7;font-size:14px">Cases Submitted This Week</h3>';
  gmailHtml += '<table style="border-collapse:collapse;width:100%"><tr style="background:#EEEDFE"><th style="padding:6px;border:1px solid #ddd;text-align:left">Client</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Product</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Amount</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Your Comm</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Partner Gets</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Split Agent</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Status</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Submitted</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Est. Pay</th></tr>';
  gmailHtml += htmlRows;
