@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.15.4';
-var APP_BUILD_DATE = '2026-05-05';
+var APP_VERSION = 'v1.15.5';
+var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.15.5', date:'2026-05-07', notes:[
+  'Today\'s Priorities names are now tap-to-dial: click any name in quoted/meeting/callback lists to open the phone dialer with that lead\'s number',
+  'Right-click on a name to open the lead\'s detail page instead of dialing',
+  'Names without a phone number open the lead detail directly on click'
+ ]},
  {ver:'v1.15.4', date:'2026-05-05', notes:[
   'Fix: Tapping a search result, call queue lead, or appointment on phone caused a flicker and bounced back to home',
   'Root cause: phoneOpenLead set "selectedLeadId" (wrong variable), but renderLeadDetail reads "crmEditId"',
@@ -7308,16 +7313,29 @@ function renderCallQueue(){
   h += '</div>';
  }
 
- // Priority follow-ups
+ // Priority follow-ups — names rendered as tel: links so a tap dials directly
+ // (mobile) or opens the system dialer / FaceTime (desktop). Right-click → "Open
+ // lead" via context-menu shortcut on each link as a secondary path.
+ function _bfNameLink(l){
+  var nm = l.name || '?';
+  var phNorm = (l.phone || '').replace(/\D/g, '');
+  if(!phNorm){
+   // No phone — just open lead detail on click
+   return '<a href="javascript:void(0)" onclick="crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px">'+nm+'</a>';
+  }
+  return '<a href="tel:'+phNorm+'" oncontextmenu="event.preventDefault();crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px" title="Tap to call · Right-click to open lead">'+nm+'</a>';
+ }
+ function _bfNameList(arr){ return arr.map(_bfNameLink).join(', '); }
+
  var priorityItems = [];
- if(bfQuotedDue.length > 0) priorityItems.push('<span style="color:var(--amb)">💰 '+bfQuotedDue.length+' quoted lead'+(bfQuotedDue.length>1?'s':'')+' need follow-up</span> — '+bfQuotedDue.map(function(l){return l.name}).join(', '));
- if(bfMeetingDue.length > 0) priorityItems.push('<span style="color:var(--pri)">📋 '+bfMeetingDue.length+' meeting follow-up'+(bfMeetingDue.length>1?'s':'')+'</span> — '+bfMeetingDue.map(function(l){return l.name}).join(', '));
+ if(bfQuotedDue.length > 0) priorityItems.push('<span style="color:var(--amb)">💰 '+bfQuotedDue.length+' quoted lead'+(bfQuotedDue.length>1?'s':'')+' need follow-up</span> — '+_bfNameList(bfQuotedDue));
+ if(bfMeetingDue.length > 0) priorityItems.push('<span style="color:var(--pri)">📋 '+bfMeetingDue.length+' meeting follow-up'+(bfMeetingDue.length>1?'s':'')+'</span> — '+_bfNameList(bfMeetingDue));
  if(bfConnectedDue.length > 0) priorityItems.push('<span style="color:#1abc9c">🤝 '+bfConnectedDue.length+' connected lead'+(bfConnectedDue.length>1?'s':'')+' due</span>');
  if(bfDiscoveryDue.length > 0) priorityItems.push('<span style="color:#1abc9c">🔍 '+bfDiscoveryDue.length+' discovery follow-up'+(bfDiscoveryDue.length>1?'s':'')+'</span>');
  if(bfNewLeads.length > 0) priorityItems.push('<span style="color:#3498db">🆕 '+bfNewLeads.length+' new lead'+(bfNewLeads.length>1?'s':'')+' to call</span>');
  if(bfAttempting.length > 0) priorityItems.push('<span style="color:#e67e22">📞 '+bfAttempting.length+' attempting lead'+(bfAttempting.length>1?'s':'')+' in queue</span>');
  if(bfNurturingDue.length > 0) priorityItems.push('<span style="color:#9b59b6">🌡️ '+bfNurturingDue.length+' nurturing check-in'+(bfNurturingDue.length>1?'s':'')+'</span>');
- if(bfCallbacksDue.length > 0) priorityItems.push('<span style="color:#e74c3c">📅 '+bfCallbacksDue.length+' scheduled callback'+(bfCallbacksDue.length>1?'s':'')+'</span> — '+bfCallbacksDue.map(function(l){return l.name}).join(', '));
+ if(bfCallbacksDue.length > 0) priorityItems.push('<span style="color:#e74c3c">📅 '+bfCallbacksDue.length+' scheduled callback'+(bfCallbacksDue.length>1?'s':'')+'</span> — '+_bfNameList(bfCallbacksDue));
 
  if(priorityItems.length > 0){
   h += '<div style="margin-bottom:4px"><b style="color:var(--pri)">Today\'s Priorities:</b></div>';
