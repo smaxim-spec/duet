@@ -2,9 +2,19 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.15.7` · Updated 2026-05-07
+> **Current version:** `v1.15.8` · Updated 2026-05-07
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.15.8 — 2026-05-07 — Restore instant native dialer open
+
+The synchronous toast render in v1.15.7 fixed the disposition-prompt lag, but it blocked iOS from showing the native "Call <number>?" confirmation dialog until our toast finished building — now the dialer felt slow.
+
+- Defer the toast to the next event-loop tick (`setTimeout(showCallOutcomePrompt, 0, leadId)`) so iOS handles `tel:` navigation immediately
+- Dialer opens instantly; the toast appears right after (briefly hidden behind the native dialog on iOS, visible when you dismiss it)
+- Best of both worlds: dialer is snappy, toast is queued and ready when you return
 
 ---
 

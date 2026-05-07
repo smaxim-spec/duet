@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.15.7';
+var APP_VERSION = 'v1.15.8';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.15.8', date:'2026-05-07', notes:[
+  'Speed up the native iOS call-confirmation dialog open time',
+  'v1.15.7 made the disposition toast render synchronously on tap, which blocked iOS from showing its native "Call <number>?" confirmation until our toast finished building',
+  'Now the toast is deferred to the next event-loop tick (setTimeout 0) so iOS handles tel: navigation immediately — dialer opens instantly, toast appears right after',
+  'Tradeoff: on iOS the toast may briefly hide behind the native dialog and become visible when you dismiss it; on desktop both appear together'
+ ]},
  {ver:'v1.15.7', date:'2026-05-07', notes:[
   'Speed up tap-to-call disposition prompt — was lagging on iOS because the 50ms setTimeout got paused while Safari handed off to the phone dialer (toast only appeared after dismissing the call confirmation)',
   'Fix: render the disposition toast synchronously in onclick, no setTimeout',
@@ -6888,7 +6894,7 @@ function renderPhoneApp(){
    h += '<div style="font-size:11px;color:var(--muted)">'+ escapeHtml(reason) +'</div>';
    h += '</div>';
    if(phNorm){
-    h += '<a href="tel:'+ phNorm +'" onclick="showCallOutcomePrompt('+ lead.id +')" style="background:var(--grn);color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;flex-shrink:0">📞 Call</a>';
+    h += '<a href="tel:'+ phNorm +'" onclick="setTimeout(showCallOutcomePrompt,0,'+ lead.id +')" style="background:var(--grn);color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;flex-shrink:0">📞 Call</a>';
    }
    h += '</div>';
   });
@@ -7334,7 +7340,7 @@ function renderCallQueue(){
    // No phone — just open lead detail on click
    return '<a href="javascript:void(0)" onclick="crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px">'+nm+'</a>';
   }
-  return '<a href="tel:'+phNorm+'" onclick="showCallOutcomePrompt('+l.id+')" oncontextmenu="event.preventDefault();crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px" title="Tap to call · Right-click to open lead">'+nm+'</a>';
+  return '<a href="tel:'+phNorm+'" onclick="setTimeout(showCallOutcomePrompt,0,'+l.id+')" oncontextmenu="event.preventDefault();crmEditId='+l.id+';crmView=\'lead\';renderCRM();return false" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(83,74,183,0.4);text-underline-offset:2px" title="Tap to call · Right-click to open lead">'+nm+'</a>';
  }
  function _bfNameList(arr){ return arr.map(_bfNameLink).join(', '); }
 
