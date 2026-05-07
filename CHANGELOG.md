@@ -2,9 +2,31 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.16.0` · Updated 2026-05-07
+> **Current version:** `v1.16.1` · Updated 2026-05-07
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.16.1 — 2026-05-07 — Two-status model (Phase 1 of 3)
+
+Leads now carry **both** an Opportunity status (CRM-side, terminal at Won/Lost) and a **Policy status** (DuetBooks-side, lifecycle: Pending/Submitted/Approved/Issued/Paid/Paid-Partial/Declined). This is Phase 1 of the two-status refactor — Phase 2 is the DuetBooks push-back side, Phase 3 is the rebuilt weekly report.
+
+**What changed in CRM:**
+
+- `lead.policyStatus` and `lead.policyStatusChangedDate` are new fields on the lead schema
+- Lead detail header shows two badges side-by-side: Opportunity (existing stage badge) + 📋 Policy (new)
+- `convertToPipeline` + `showCreateCaseModal` write `crmLeadId: lead.id` onto every new DuetBooks case so DuetBooks can push policy-status changes back to the matching CRM lead
+- Both push paths initialize `lead.policyStatus = "submitted"` at the moment of conversion, so the Policy badge appears immediately on a new Won lead
+- New decline-reason flow: when `policyStatus === "declined"`, a red banner appears on lead detail with a single input. Saving prepends a `"DECLINE: ..."` entry to `historyNotes` — surfaces on the rebuilt weekly report (Phase 3)
+- Cleanup tool scope correction: only targets `stage === "won"` leads (was Won + App Submitted). App Submitted is intentionally a CRM-only "in-flight 50/50" stage and is **never** pushed to DuetBooks
+
+**Backups before this build:**
+
+- `/backups/pre_two_status_20260507T185547` (combined: 502 leads + 69 DuetBooks cases, 548KB)
+- Local source backups: `~/Desktop/Duet/.backups_pre_two_status_20260507T185547/{DuetCRM,DuetBooks}.html.bak`
+
+**No data migration ran.** Existing Won leads will get `policyStatus` only when (a) their DuetBooks case status next changes after Phase 2 ships, or (b) they re-flow through Won.
 
 ---
 

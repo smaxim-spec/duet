@@ -313,19 +313,9 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.1';
+var APP_VERSION = 'v1.16.0';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
- {ver:'v1.16.1', date:'2026-05-07', notes:[
-  'NEW: Two-status model — leads now carry both an Opportunity status (CRM stage, terminal at Won/Lost) and a Policy status (mirrors DuetBooks case lifecycle: Pending/Submitted/Approved/Issued/Paid/Paid-Partial/Declined)',
-  'Lead detail header shows both badges side-by-side: Opportunity (existing stage badge) + 📋 Policy (new, sourced from lead.policyStatus)',
-  'convertToPipeline + showCreateCaseModal now write crmLeadId onto the DuetBooks case object so DuetBooks can push policy-status changes back to the matching CRM lead',
-  'Both paths also initialize lead.policyStatus = "submitted" and lead.policyStatusChangedDate at the moment of conversion, so the Policy badge appears immediately',
-  'Decline-reason flow: when policyStatus = "declined", a red banner on the lead detail prompts for the reason; saving prepends a "DECLINE: ..." entry to historyNotes (will surface on the rebuilt weekly report in v1.16.2)',
-  'Cleanup tool scope correction — only targets stage="won" leads (was won + app_submitted). App Submitted is intentionally a CRM-only "in-flight 50/50" stage and is NOT pushed to DuetBooks',
-  'No data migration: existing Won leads will get policyStatus only when their DuetBooks case status next changes (after DuetBooks v1.3.0 ships) or when they re-flow through Won',
-  'Backups before this build: /backups/pre_two_status_20260507T185547 (502 leads + 69 DuetBooks cases) plus local source backups in ~/Desktop/Duet/.backups_pre_two_status_20260507T185547/'
- ]},
  {ver:'v1.16.0', date:'2026-05-07', notes:[
   'NEW: 🧹 Cleanup tool — reconciles CRM Won/App Submitted leads against DuetBooks (the source of truth for closed deals)',
   'Fuzzy-matches by client name (case/punctuation/space-insensitive so "Daisy Delgado live" matches "Daisy Delgado-live")',
@@ -1424,9 +1414,6 @@ function saveAppts(){
 var CRM_STAGES = ['new','attempting','connected','discovery','incubator','meeting_set','quoted','app_submitted','won','lost'];
 var CRM_STAGE_LABELS = {new:'New',attempting:'Attempting',connected:'Connected',discovery:'Discovery',incubator:'Nurturing',meeting_set:'Meeting Set',quoted:'Quoted',app_submitted:'App Submitted',won:'Won',lost:'Lost'};
 var CRM_STAGE_COLORS = {new:'#3498db',attempting:'#e67e22',connected:'#f39c12',discovery:'#1abc9c',incubator:'#9b59b6',meeting_set:'var(--pri)',quoted:'#2980b9',app_submitted:'var(--amb)',won:'var(--grn)',lost:'#c0392b'};
-// Policy status mirrors DuetBooks case status; written by convertToPipeline / showCreateCaseModal at submission and updated by DuetBooks via push-back.
-var POLICY_STATUS_LABELS = {pending:'Pending',submitted:'Submitted',approved:'Approved',issued:'Issued',paid:'Paid','paid-partial':'Paid (Partial)',declined:'Declined'};
-var POLICY_STATUS_COLORS = {pending:'#7f8c8d',submitted:'#2980b9',approved:'#f39c12',issued:'var(--grn)',paid:'var(--dgrn)','paid-partial':'#16a085',declined:'#c0392b'};
 var CALL_OUTCOMES = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Confirmed','Rescheduled','Quoted','App Submitted','Won','Nurturing','Lost','Callback'];
 var LOST_REASONS = ['Not Interested','Went Elsewhere','Did Not Qualify','Bad Timing','No Contact After Max Attempts','Price','Incorrect Number','Other'];
 var WIN_REASONS = ['Great Fit','Agent Referral Trust','Price Competitive','Urgency/Need','Existing Relationship','Product Match','Other'];
@@ -4757,7 +4744,6 @@ function convertToPipeline(lead){
  var partnerShare = splitType === 'split' ? origGross * (settings.partnerShare/100) : 0;
  var caseObj = {
   id: Date.now(), // use timestamp ID to avoid collisions with DuetBooks
-  crmLeadId: lead.id, // back-link so DuetBooks can push policy-status changes back here
   client: lead.name,
   phone: lead.phone || '',
   product: prodName,
@@ -4779,12 +4765,6 @@ function convertToPipeline(lead){
   created: new Date().toISOString()
  };
  pl.push(caseObj);
- // Initialize the lead's policyStatus mirror so the CRM lead detail can show
- // both Opportunity (Won) and Policy (Submitted) badges immediately. DuetBooks
- // will overwrite policyStatus + policyStatusChangedDate whenever the case
- // status changes there (push-back direction).
- lead.policyStatus = 'submitted';
- lead.policyStatusChangedDate = new Date().toISOString();
  // Save to localStorage for immediate dashboard update
  try { localStorage.setItem('salestracker_pl_2026', JSON.stringify(pl2026)); } catch(e){}
  // Push to pipeline_2026 Firebase path
@@ -5260,7 +5240,6 @@ function createCaseFromLead(leadId){
  // Build DuetBooks-compatible case object
  var c = {
   id: Date.now(),  // unique ID that won't collide with DuetBooks' nextCaseId
-  crmLeadId: lead.id, // back-link so DuetBooks can push policy-status changes back here
   client: lead.name,
   phone: lead.phone || '',
   product: booksProduct,
@@ -5277,10 +5256,6 @@ function createCaseFromLead(leadId){
   year: new Date().getFullYear(),
   created: new Date().toISOString()
  };
- // Initialize policyStatus mirror on the lead so the lead-detail badges
- // reflect the new DuetBooks case immediately
- lead.policyStatus = 'submitted';
- lead.policyStatusChangedDate = new Date().toISOString();
 
  // Push to DuetBooks Firebase (source of truth)
  fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
@@ -8095,9 +8070,7 @@ function loadCleanupBuckets(onDone){
    _cleanupBooksCases = arr;
    var safe = [], review = [], noMatch = [];
    (leads || []).forEach(function(l){
-    // Won is the only stage that should auto-flow to DuetBooks. App Submitted
-    // is intentionally a CRM-only "in-flight 50/50" stage and is NOT pushed.
-    if(!l || l.stage !== 'won') return;
+    if(!l || (l.stage !== 'won' && l.stage !== 'app_submitted')) return;
     var match = _findBooksMatch(l, arr);
     if(!match){ noMatch.push(l); return; }
     var mm = _detectMismatches(l, match.bcase);
@@ -8334,15 +8307,7 @@ function renderLeadDetail(){
  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">';
  h += '<h3 style="margin:0;font-size:16px">'+lead.name+'</h3>';
  h += '<a href="tel:'+lead.phone+'" onclick="speedDial('+lead.id+')" style="color:var(--pri);font-weight:600;font-size:13px">📞 '+lead.phone+'</a>';
- h += '<span class="badge" title="Opportunity status (CRM)" style="background:'+CRM_STAGE_COLORS[lead.stage]+';color:#fff;font-size:10px;padding:2px 8px">'+CRM_STAGE_LABELS[lead.stage]+'</span>';
- // Policy status badge — only meaningful once the lead has been pushed to DuetBooks.
- // Sourced from lead.policyStatus, written by convertToPipeline at Won and updated
- // by DuetBooks push-back as the case advances (Approved/Issued/Paid/Declined).
- if(lead.policyStatus){
-  var psLbl = POLICY_STATUS_LABELS[lead.policyStatus] || lead.policyStatus;
-  var psCol = POLICY_STATUS_COLORS[lead.policyStatus] || '#7f8c8d';
-  h += '<span class="badge" title="Policy status (DuetBooks)" style="background:'+psCol+';color:#fff;font-size:10px;padding:2px 8px">📋 '+psLbl+'</span>';
- }
+ h += '<span class="badge" style="background:'+CRM_STAGE_COLORS[lead.stage]+';color:#fff;font-size:10px;padding:2px 8px">'+CRM_STAGE_LABELS[lead.stage]+'</span>';
  if(lead.stage === 'incubator'){
   h += '<select onchange="setNurturingTemp('+lead.id+',this.value)" style="width:70px;font-size:10px">';
   INCUBATOR_TEMPS.forEach(function(t){ h += '<option value="'+t+'"'+(lead.incubatorTemp===t?' selected':'')+'>'+t.charAt(0).toUpperCase()+t.slice(1)+'</option>'; });
@@ -8423,32 +8388,6 @@ function renderLeadDetail(){
  });
  h += '</div>';
  h += '</div>';
-
- // ── Decline-reason banner ──
- // Shown when the policy was declined in DuetBooks. Already-recorded
- // DECLINE history notes are detected by the "DECLINE:" prefix, so the
- // banner shifts to a recap once the reason is captured.
- if(lead.policyStatus === 'declined'){
-  var existingDecline = (lead.historyNotes || []).find(function(n){
-   return n && n.text && (n.text+'').indexOf('DECLINE:') === 0;
-  });
-  h += '<div style="margin-top:10px;background:rgba(192,57,43,0.08);border:1px solid #c0392b;border-radius:6px;padding:10px 12px">';
-  h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-  h += '<b style="color:#c0392b">📋 Policy Declined</b>';
-  h += '<span style="font-size:11px;color:var(--muted)">DuetBooks marked this case declined. Opportunity stays Won (terminal).</span>';
-  h += '</div>';
-  if(existingDecline){
-   h += '<div style="margin-top:6px;font-size:12px"><b>Reason:</b> '+escapeHtml(existingDecline.text.replace(/^DECLINE:\s*/,''))+'</div>';
-   h += '<div style="margin-top:4px;font-size:10px;color:var(--muted)">Recorded '+new Date(existingDecline.date).toLocaleDateString()+' — edit by adding a new history note.</div>';
-  } else {
-   h += '<div style="margin-top:8px;display:flex;gap:4px">';
-   h += '<input id="dr_input_'+lead.id+'" placeholder="Why was it declined? (e.g., carrier — health rating)" style="flex:1;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px">';
-   h += '<button class="btn btn-pri btn-sm" onclick="addDeclineReason('+lead.id+')" style="font-size:11px;padding:4px 12px">Save reason</button>';
-   h += '</div>';
-   h += '<div style="margin-top:4px;font-size:10px;color:var(--muted)">Saved as a "DECLINE: ..." entry in History — visible on weekly report.</div>';
-  }
-  h += '</div>';
- }
 
  // Call log section
  h += '<div class="grid2" style="margin-top:12px">';
@@ -9502,21 +9441,6 @@ function addHistoryNote(leadId){
  saveLeads();
  renderCRM();
  showToast('Note added!', 2000);
-}
-
-// Records the decline reason as a "DECLINE: ..." historyNote entry. The
-// "DECLINE:" prefix is how the lead-detail banner and the (forthcoming)
-// weekly report identify decline-reason entries.
-function addDeclineReason(leadId){
- var input = document.querySelector('#dr_input_'+leadId);
- if(!input || !input.value.trim()){ showToast('Enter a decline reason first', 3000); return; }
- var lead = leads.find(function(l){return l.id === leadId});
- if(!lead) return;
- if(!lead.historyNotes) lead.historyNotes = [];
- lead.historyNotes.push({date: new Date().toISOString(), text: 'DECLINE: ' + input.value.trim()});
- saveLeads();
- renderCRM();
- showToast('Decline reason recorded', 2500);
 }
 
 // ═══ CLIENT IMAGES (base64 stored in lead data, syncs via Firebase) ═══
