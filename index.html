@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.6';
+var APP_VERSION = 'v1.16.7';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.16.7', date:'2026-05-07', notes:[
+  'Match Policy badge colors to DuetBooks across the report and lead detail',
+  'Issued + Approved → purple (DuetBooks badge-pri), Submitted → amber, Pending → red, Paid → green, Paid (Partial) → amber, Declined → gray',
+  'Activity table policy badge + lead-detail Policy badge + email Gmail HTML cell all share the same color scheme'
+ ]},
  {ver:'v1.16.6', date:'2026-05-07', notes:[
   'Reordered weekly report sections — "Cases Submitted This Week" now renders ABOVE "Activity for This Week" (was below)',
   'Same swap applied to the Gmail HTML body so the manager email matches',
@@ -1457,8 +1462,9 @@ var CRM_STAGES = ['new','attempting','connected','discovery','incubator','meetin
 var CRM_STAGE_LABELS = {new:'New',attempting:'Attempting',connected:'Connected',discovery:'Discovery',incubator:'Nurturing',meeting_set:'Meeting Set',quoted:'Quoted',app_submitted:'App Submitted',won:'Won',lost:'Lost'};
 var CRM_STAGE_COLORS = {new:'#3498db',attempting:'#e67e22',connected:'#f39c12',discovery:'#1abc9c',incubator:'#9b59b6',meeting_set:'var(--pri)',quoted:'#2980b9',app_submitted:'var(--amb)',won:'var(--grn)',lost:'#c0392b'};
 // Policy status mirrors DuetBooks case status; written by convertToPipeline / showCreateCaseModal at submission and updated by DuetBooks via push-back.
+// Colors matched to DuetBooks badge classes: pending=red, submitted=amber, approved=purple, issued=purple, paid=green, paid-partial=amber, declined=gray.
 var POLICY_STATUS_LABELS = {pending:'Pending',submitted:'Submitted',approved:'Approved',issued:'Issued',paid:'Paid','paid-partial':'Paid (Partial)',declined:'Declined'};
-var POLICY_STATUS_COLORS = {pending:'#7f8c8d',submitted:'#2980b9',approved:'#f39c12',issued:'var(--grn)',paid:'var(--dgrn)','paid-partial':'#16a085',declined:'#c0392b'};
+var POLICY_STATUS_COLORS = {pending:'#D94545',submitted:'#EF9F27',approved:'var(--pri)',issued:'var(--pri)',paid:'var(--grn)','paid-partial':'#EF9F27',declined:'#777'};
 var CALL_OUTCOMES = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Confirmed','Rescheduled','Quoted','App Submitted','Won','Nurturing','Lost','Callback'];
 var LOST_REASONS = ['Not Interested','Went Elsewhere','Did Not Qualify','Bad Timing','No Contact After Max Attempts','Price','Incorrect Number','Other'];
 var WIN_REASONS = ['Great Fit','Agent Referral Trust','Price Competitive','Urgency/Need','Existing Relationship','Product Match','Other'];
@@ -3691,7 +3697,8 @@ function genReport(weekStartYMDArg){
    gmailHtml += '<td style="'+td+'">'+escapeHtml(prod)+'</td>';
    gmailHtml += '<td style="'+td+'">'+escapeHtml(agent)+'</td>';
    gmailHtml += '<td style="'+td+'">'+oppLbl+'</td>';
-   gmailHtml += '<td style="'+td+';color:'+(l.policyStatus==='declined'?'#c0392b':l.policyStatus==='paid'||l.policyStatus==='paid-partial'?'#1D9E75':'#333')+';font-weight:'+(l.policyStatus==='declined'||l.policyStatus==='paid'?'bold':'normal')+'">'+psLbl+'</td>';
+   var psEmailCol = (POLICY_STATUS_COLORS[l.policyStatus] || '#333').replace('var(--pri)','#534AB7').replace('var(--grn)','#1D9E75').replace('var(--dgrn)','#0F6E56');
+   gmailHtml += '<td style="'+td+';color:#fff;background:'+psEmailCol+';font-weight:bold">'+psLbl+'</td>';
    gmailHtml += '<td style="'+td+'">'+e.changes.join(' · ')+'</td>';
    gmailHtml += '<td style="'+td+';color:#c0392b">'+notesCell+'</td>';
    gmailHtml += '</tr>';
