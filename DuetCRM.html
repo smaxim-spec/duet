@@ -313,9 +313,13 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.4';
+var APP_VERSION = 'v1.16.5';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.16.5', date:'2026-05-07', notes:[
+  'Renamed weekly report section header from "Won Activity This Week" to "Activity for This Week" — accurately reflects that the table covers Won + Lost + Policy advances + Declines, not just Wins',
+  'Updated in both in-app heading and email Gmail HTML body'
+ ]},
  {ver:'v1.16.4', date:'2026-05-07', notes:[
   'Fix: Weekly Report "All Open Cases" was showing stale paid cases (e.g. Diane Lawson showed Issued in CRM even though DuetBooks had her as Paid 2026-04-30) — root cause: the section read from the local pl mirror, which never gets pulled back from DuetBooks',
   'Now: report fetches DuetBooks cases directly on every genReport call and uses them as the source of truth for All Open Cases (falls back to pl if DuetBooks fetch hasn\'t completed yet)',
@@ -3458,7 +3462,7 @@ function genReport(weekStartYMDArg){
   return (Date.now() - new Date(d).getTime()) / 86400000 > 30;
  });
 
- h += '<h4 style="color:var(--grn);margin-bottom:6px">🆕 Won Activity This Week — '+weekLabel+' ('+_activityEntries.length+')</h4>';
+ h += '<h4 style="color:var(--grn);margin-bottom:6px">🆕 Activity for This Week — '+weekLabel+' ('+_activityEntries.length+')</h4>';
  h += '<p style="font-size:11px;color:var(--muted);margin:0 0 6px 0">Activity-based: row appears when a lead moved to Won, had a policy status change, was Lost, or had a DECLINE reason added this week.</p>';
  if(_activityEntries.length === 0){
   h += '<p style="color:var(--muted);font-size:12px">No activity this week.</p>';
@@ -3643,8 +3647,8 @@ function genReport(weekStartYMDArg){
 
  gmailHtml += '</td></tr></table>';
 
- // ── EMAIL: Won Activity This Week (flat table — both Opportunity + Policy columns) ──
- gmailHtml += '<h3 style="color:#1D9E75;font-size:14px;margin-bottom:4px">🆕 Won Activity This Week ('+_activityEntries.length+')</h3>';
+ // ── EMAIL: Activity for This Week (flat table — both Opportunity + Policy columns) ──
+ gmailHtml += '<h3 style="color:#1D9E75;font-size:14px;margin-bottom:4px">🆕 Activity for This Week ('+_activityEntries.length+')</h3>';
  gmailHtml += '<p style="color:#666;font-size:11px;margin:0 0 6px 0">Activity-based: row appears when a lead moved to Won, had a policy status change, was Lost, or had a DECLINE reason added this week.</p>';
  if(_activityEntries.length === 0){
   gmailHtml += '<p style="color:#666;font-size:12px">No activity this week.</p>';
