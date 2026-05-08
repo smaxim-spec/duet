@@ -2,9 +2,20 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.16.3` · Updated 2026-05-07
+> **Current version:** `v1.16.4` · Updated 2026-05-07
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.16.4 — 2026-05-07 — Weekly Report "All Open Cases" reads from DuetBooks
+
+Diane Lawson was showing as Issued in the report's "All Open Cases" section even though DuetBooks had her as Paid (2026-04-30). Root cause: that section reads from the CRM's local `pl` mirror, which only ever gets data pushed *into* it (from `convertToPipeline`) — DuetBooks status updates never flowed back, so `pl` stayed frozen.
+
+- Report now fetches `/duetbooks/steve_maxim/cases.json` on every `genReport` call and uses it as the source of truth for "All Open Cases"
+- Falls back to `pl` if the fetch hasn't completed yet (prevents flicker)
+- Auto re-renders the report once if DuetBooks status snapshot differs from the previous render (only re-renders on actual change — no loops)
+- Open filter also excludes `paid-partial` and `declined` (was only excluding `paid`)
 
 ---
 
