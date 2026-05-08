@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.5';
+var APP_VERSION = 'v1.16.6';
 var APP_BUILD_DATE = '2026-05-07';
 var CHANGELOG = [
+ {ver:'v1.16.6', date:'2026-05-07', notes:[
+  'Reordered weekly report sections — "Cases Submitted This Week" now renders ABOVE "Activity for This Week" (was below)',
+  'Same swap applied to the Gmail HTML body so the manager email matches',
+  'Section order now: Cases Submitted → Activity → All Open Cases → CRM Activity stats'
+ ]},
  {ver:'v1.16.5', date:'2026-05-07', notes:[
   'Renamed weekly report section header from "Won Activity This Week" to "Activity for This Week" — accurately reflects that the table covers Won + Lost + Policy advances + Declines, not just Wins',
   'Updated in both in-app heading and email Gmail HTML body'
@@ -3462,7 +3467,16 @@ function genReport(weekStartYMDArg){
   return (Date.now() - new Date(d).getTime()) / 86400000 > 30;
  });
 
- h += '<h4 style="color:var(--grn);margin-bottom:6px">🆕 Activity for This Week — '+weekLabel+' ('+_activityEntries.length+')</h4>';
+ // Cases Submitted This Week — rendered FIRST (per user preference)
+ h += '<h4 style="color:var(--pri);margin-bottom:8px">Cases Submitted This Week — '+filterLabel+'</h4>';
+ if(openCases.length === 0) h += '<p style="color:var(--muted);font-size:12px">No cases submitted during this period ('+weekLabel+').</p>';
+ h += '<table><tr><th>Client</th><th>Product</th><th>Amount</th><th>Your Comm</th><th>Partner Gets</th><th>Split Agent</th><th>Status</th><th>Submitted</th><th>Est. Pay</th></tr>';
+ h += rows;
+ h += '<tr style="font-weight:700;background:var(--gtint)"><td colspan="3">TOTALS ('+openCases.length+' cases)</td><td>'+fmt(totalComm)+'</td><td colspan="5"></td></tr>';
+ h += '</table>';
+
+ // Activity for This Week — rendered SECOND (sits below Cases Submitted)
+ h += '<h4 style="color:var(--grn);margin-bottom:6px;margin-top:18px">🆕 Activity for This Week — '+weekLabel+' ('+_activityEntries.length+')</h4>';
  h += '<p style="font-size:11px;color:var(--muted);margin:0 0 6px 0">Activity-based: row appears when a lead moved to Won, had a policy status change, was Lost, or had a DECLINE reason added this week.</p>';
  if(_activityEntries.length === 0){
   h += '<p style="color:var(--muted);font-size:12px">No activity this week.</p>';
@@ -3502,14 +3516,6 @@ function genReport(weekStartYMDArg){
  h += '⚠️ Stale (&gt;30d no movement): <b>'+_staleInFlight.length+'</b>';
  if(_staleInFlight.length > 0) h += ' — '+_staleInFlight.slice(0,3).map(function(l){return escapeHtml(l.name)}).join(', ')+(_staleInFlight.length>3?', …':'');
  h += '</p>';
-
- // Cases Submitted This Week
- h += '<h4 style="color:var(--pri);margin-bottom:8px;margin-top:18px">Cases Submitted This Week — '+filterLabel+'</h4>';
- if(openCases.length === 0) h += '<p style="color:var(--muted);font-size:12px">No cases submitted during this period ('+weekLabel+').</p>';
- h += '<table><tr><th>Client</th><th>Product</th><th>Amount</th><th>Your Comm</th><th>Partner Gets</th><th>Split Agent</th><th>Status</th><th>Submitted</th><th>Est. Pay</th></tr>';
- h += rows;
- h += '<tr style="font-weight:700;background:var(--gtint)"><td colspan="3">TOTALS ('+openCases.length+' cases)</td><td>'+fmt(totalComm)+'</td><td colspan="5"></td></tr>';
- h += '</table>';
 
  // All Open (Unpaid) Cases — pulled from DuetBooks (source of truth) when available,
  // falling back to local pl mirror. Local pl can drift out of sync because DuetBooks
@@ -3647,8 +3653,14 @@ function genReport(weekStartYMDArg){
 
  gmailHtml += '</td></tr></table>';
 
- // ── EMAIL: Activity for This Week (flat table — both Opportunity + Policy columns) ──
- gmailHtml += '<h3 style="color:#1D9E75;font-size:14px;margin-bottom:4px">🆕 Activity for This Week ('+_activityEntries.length+')</h3>';
+ // ── EMAIL: Cases Submitted This Week — rendered FIRST ──
+ gmailHtml += '<h3 style="color:#534AB7;font-size:14px">Cases Submitted This Week</h3>';
+ gmailHtml += '<table style="border-collapse:collapse;width:100%"><tr style="background:#EEEDFE"><th style="padding:6px;border:1px solid #ddd;text-align:left">Client</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Product</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Amount</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Your Comm</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Partner Gets</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Split Agent</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Status</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Submitted</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Est. Pay</th></tr>';
+ gmailHtml += htmlRows;
+ gmailHtml += '<tr style="font-weight:bold;background:#F0FBF7"><td style="padding:6px;border:1px solid #ddd" colspan="3">TOTALS ('+openCases.length+' cases)</td><td style="padding:6px;border:1px solid #ddd">'+fmt(totalComm)+'</td><td style="padding:6px;border:1px solid #ddd" colspan="5"></td></tr></table>';
+
+ // ── EMAIL: Activity for This Week — rendered SECOND (below Cases Submitted) ──
+ gmailHtml += '<br><h3 style="color:#1D9E75;font-size:14px;margin-bottom:4px">🆕 Activity for This Week ('+_activityEntries.length+')</h3>';
  gmailHtml += '<p style="color:#666;font-size:11px;margin:0 0 6px 0">Activity-based: row appears when a lead moved to Won, had a policy status change, was Lost, or had a DECLINE reason added this week.</p>';
  if(_activityEntries.length === 0){
   gmailHtml += '<p style="color:#666;font-size:12px">No activity this week.</p>';
@@ -3690,12 +3702,7 @@ function genReport(weekStartYMDArg){
  gmailHtml += '🕒 In-flight (Won, policy not settled): <b>'+_inFlight.length+'</b>'+(_inFlight.length>0?' (oldest '+_oldestInFlightDays+' day'+(_oldestInFlightDays===1?'':'s')+')':'')+'. &nbsp; ';
  gmailHtml += '⚠️ Stale (&gt;30d no movement): <b>'+_staleInFlight.length+'</b>';
  if(_staleInFlight.length > 0) gmailHtml += ' — '+_staleInFlight.slice(0,3).map(function(l){return escapeHtml(l.name)}).join(', ')+(_staleInFlight.length>3?', …':'');
- gmailHtml += '</p><br>';
-
- gmailHtml += '<h3 style="color:#534AB7;font-size:14px">Cases Submitted This Week</h3>';
- gmailHtml += '<table style="border-collapse:collapse;width:100%"><tr style="background:#EEEDFE"><th style="padding:6px;border:1px solid #ddd;text-align:left">Client</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Product</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Amount</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Your Comm</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Partner Gets</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Split Agent</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Status</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Submitted</th><th style="padding:6px;border:1px solid #ddd;text-align:left">Est. Pay</th></tr>';
- gmailHtml += htmlRows;
- gmailHtml += '<tr style="font-weight:bold;background:#F0FBF7"><td style="padding:6px;border:1px solid #ddd" colspan="3">TOTALS ('+openCases.length+' cases)</td><td style="padding:6px;border:1px solid #ddd">'+fmt(totalComm)+'</td><td style="padding:6px;border:1px solid #ddd" colspan="5"></td></tr></table>';
+ gmailHtml += '</p>';
  // All Open Cases
  gmailHtml += '<br><h3 style="color:#e67e22;font-size:14px">All Open Cases ('+allOpenCases.length+')</h3>';
  if(allOpenCases.length > 0){
