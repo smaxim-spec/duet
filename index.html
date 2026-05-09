@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.7';
-var APP_BUILD_DATE = '2026-05-07';
+var APP_VERSION = 'v1.16.8';
+var APP_BUILD_DATE = '2026-05-09';
 var CHANGELOG = [
+ {ver:'v1.16.8', date:'2026-05-09', notes:[
+  'Fix: 🏋️ This Week\'s Drill callout boxes in Sales Mastery — Lesson of the Week were unreadable in dark mode (light text on light pink background)',
+  'Replaced hard-coded background:#f5e6ff with theme-aware var(--ptint) + explicit var(--txt) text color across all 7 drill boxes',
+  'Now both light and dark mode have proper contrast'
+ ]},
  {ver:'v1.16.7', date:'2026-05-07', notes:[
   'Match Policy badge colors to DuetBooks across the report and lead detail',
   'Issued + Approved → purple (DuetBooks badge-pri), Submitted → amber, Pending → red, Paid → green, Paid (Partial) → amber, Declined → gray',
@@ -6160,7 +6165,7 @@ function showWeeklyCoach(){
    '<li>$1,000/week × 50 weeks = <b>$50,000 from cold calling alone</b></li>'+
    '</ul>'+
    '<p>Now add your referral pipeline and walk-ins. That\'s how you break $100K.</p>'+
-   '<div style="background:#f5e6ff;padding:10px;border-radius:var(--radius);margin-top:8px"><b>🏋️ This Week\'s Drill:</b> Before you make your first call each morning, write "40" on a sticky note and put it on your monitor. Cross off each dial. Don\'t leave until it says 0.</div>'
+   '<div style="background:var(--ptint);color:var(--txt);padding:10px;border-radius:var(--radius);margin-top:8px;border:1px solid var(--border)"><b>🏋️ This Week\'s Drill:</b> Before you make your first call each morning, write "40" on a sticky note and put it on your monitor. Cross off each dial. Don\'t leave until it says 0.</div>'
   },
   contact_rate: {
    title: 'Increasing Your Contact Rate — Timing Is Everything',
@@ -6173,7 +6178,7 @@ function showWeeklyCoach(){
    '<li><b>Saturday 10:00 AM-12:00 PM</b> — Retirees and prospects are home and relaxed</li>'+
    '</ul>'+
    '<p><b>Pro Tip:</b> After 3 failed attempts at the same time, switch your call time. If you always call at 9 AM and get voicemail, try 5:30 PM. Same person, different result.</p>'+
-   '<div style="background:#f5e6ff;padding:10px;border-radius:var(--radius);margin-top:8px"><b>🏋️ This Week\'s Drill:</b> For every lead you\'ve called 3+ times with no answer, change your call block to a different time of day. Track which time gets the pickup.</div>'
+   '<div style="background:var(--ptint);color:var(--txt);padding:10px;border-radius:var(--radius);margin-top:8px;border:1px solid var(--border)"><b>🏋️ This Week\'s Drill:</b> For every lead you\'ve called 3+ times with no answer, change your call block to a different time of day. Track which time gets the pickup.</div>'
   },
   closing_for_appt: {
    title: 'The Assumptive Close — Turning Conversations Into Appointments',
@@ -6191,7 +6196,7 @@ function showWeeklyCoach(){
    '<li><b>Value-first</b> — "show you exactly where you stand" = they get something</li>'+
    '<li><b>Confidence</b> — "I can definitely help" not "I think I might be able to"</li>'+
    '</ul>'+
-   '<div style="background:#f5e6ff;padding:10px;border-radius:var(--radius);margin-top:8px"><b>🏋️ This Week\'s Drill:</b> Practice saying the script above OUT LOUD 10 times before your first call block. Then use it word-for-word on your next 5 connections. Track how many convert.</div>'
+   '<div style="background:var(--ptint);color:var(--txt);padding:10px;border-radius:var(--radius);margin-top:8px;border:1px solid var(--border)"><b>🏋️ This Week\'s Drill:</b> Practice saying the script above OUT LOUD 10 times before your first call block. Then use it word-for-word on your next 5 connections. Track how many convert.</div>'
   },
   follow_up: {
    title: 'The Fortune Is in the Follow-Up — Working Warm Leads',
@@ -6203,7 +6208,7 @@ function showWeeklyCoach(){
    '<li><b>Touch 3 — Scarcity/Urgency:</b> "Hi [Name], I wanted to give you a heads up — [rates are changing / this offer expires / I have limited availability next week]. I\'d hate for you to miss out."</li>'+
    '</ol>'+
    '<p><b>Golden Rule:</b> Every follow-up call must provide NEW VALUE. Never call just to "check in." Always have a reason, a piece of information, or a new angle.</p>'+
-   '<div style="background:#f5e6ff;padding:10px;border-radius:var(--radius);margin-top:8px"><b>🏋️ This Week\'s Drill:</b> Write down 3 different value angles for your top 5 warm leads. Before each follow-up call, pick one angle. Never repeat the same pitch.</div>'
+   '<div style="background:var(--ptint);color:var(--txt);padding:10px;border-radius:var(--radius);margin-top:8px;border:1px solid var(--border)"><b>🏋️ This Week\'s Drill:</b> Write down 3 different value angles for your top 5 warm leads. Before each follow-up call, pick one angle. Never repeat the same pitch.</div>'
   },
   discipline: {
    title: 'The Discipline Equation — Showing Up When You Don\'t Feel Like It',
@@ -6218,7 +6223,7 @@ function showWeeklyCoach(){
    '<li>If behind: skip lunch break, keep dialing through</li>'+
    '</ol>'+
    '<p><b>Accountability Hack:</b> Text your manager your dial count at noon and at 5 PM every day. When someone is watching, you perform.</p>'+
-   '<div style="background:#f5e6ff;padding:10px;border-radius:var(--radius);margin-top:8px"><b>🏋️ This Week\'s Drill:</b> Commit to the 5-Minute Rule every morning this week. Set an alarm for 9:00 AM labeled "FIRST DIAL." Don\'t touch anything else until that first call is made.</div>'
+   '<div style="background:var(--ptint);color:var(--txt);padding:10px;border-radius:var(--radius);margin-top:8px;border:1px solid var(--border)"><b>🏋️ This Week\'s Drill:</b> Commit to the 5-Minute Rule every morning this week. Set an alarm for 9:00 AM labeled "FIRST DIAL." Don\'t touch anything else until that first call is made.</div>'
   },
   discovery: {
    title: 'Mastering Discovery — The Meeting That Closes Itself',
@@ -6237,7 +6242,7 @@ function showWeeklyCoach(){
    '(They say 7+) → "What would make it a 10?"<br>'+
    '(They say &lt;7) → "What would need to change for this to become a priority?"'+
    '</div>'+
-   '<div style="background:#f5e6ff;padding:10px;border-radius:var(--radius);margin-top:8px"><b>🏋️ This Week\'s Drill:</b> Before your next meeting, write down 5 SPIN questions specific to that prospect. During the meeting, track how much YOU talk vs. the prospect. Target: you talk less than 30%.</div>'
+   '<div style="background:var(--ptint);color:var(--txt);padding:10px;border-radius:var(--radius);margin-top:8px;border:1px solid var(--border)"><b>🏋️ This Week\'s Drill:</b> Before your next meeting, write down 5 SPIN questions specific to that prospect. During the meeting, track how much YOU talk vs. the prospect. Target: you talk less than 30%.</div>'
   },
   closing: {
    title: 'Closing the Deal — From Quote to Application',
@@ -6253,7 +6258,7 @@ function showWeeklyCoach(){
    '(If "just need time") → "Absolutely. Let me lock in today\'s rate for you with a conditional application. If you change your mind, we cancel it — no obligation. But this way you don\'t lose today\'s pricing."'+
    '</div>'+
    '<p><b>The Silence Close:</b> After you ask for the business, <b>STOP TALKING.</b> The first person to speak loses. Let the silence do the work.</p>'+
-   '<div style="background:#f5e6ff;padding:10px;border-radius:var(--radius);margin-top:8px"><b>🏋️ This Week\'s Drill:</b> Call each of your '+(stageCounts['quoted']||0)+' quoted leads this week with a specific urgency angle. Practice the silence close — ask for the app, then count to 10 in your head before saying ANYTHING.</div>'
+   '<div style="background:var(--ptint);color:var(--txt);padding:10px;border-radius:var(--radius);margin-top:8px;border:1px solid var(--border)"><b>🏋️ This Week\'s Drill:</b> Call each of your '+(stageCounts['quoted']||0)+' quoted leads this week with a specific urgency angle. Practice the silence close — ask for the app, then count to 10 in your head before saying ANYTHING.</div>'
   }
  };
 
