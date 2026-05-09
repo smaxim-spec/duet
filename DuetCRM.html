@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.8';
+var APP_VERSION = 'v1.16.9';
 var APP_BUILD_DATE = '2026-05-09';
 var CHANGELOG = [
+ {ver:'v1.16.9', date:'2026-05-09', notes:[
+  'Fix: Coach Notes (🚨 Critical / ⚠️ Warning / 💡 Insight) had hard-coded light backgrounds with no explicit text color — unreadable in dark mode',
+  'Now: critical + warning use rgba-tinted backgrounds that work in both modes; insight uses var(--ptint); all coach notes get explicit color:var(--txt)',
+  '✅ Good notes already used var(--gtint) and were unaffected'
+ ]},
  {ver:'v1.16.8', date:'2026-05-09', notes:[
   'Fix: 🏋️ This Week\'s Drill callout boxes in Sales Mastery — Lesson of the Week were unreadable in dark mode (light text on light pink background)',
   'Replaced hard-coded background:#f5e6ff with theme-aware var(--ptint) + explicit var(--txt) text color across all 7 drill boxes',
@@ -6090,9 +6095,12 @@ function showWeeklyCoach(){
 
  coachNotes.forEach(function(n){
   var icon = n.type==='critical'?'🚨':n.type==='warning'?'⚠️':n.type==='good'?'✅':'💡';
-  var bg = n.type==='critical'?'#fff5f5':n.type==='warning'?'#fffbe6':n.type==='good'?'var(--gtint)':'#f0f4ff';
+  // Theme-aware tinted backgrounds. critical + warning use rgba so they tint
+  // both light and dark mode without going invisible. insight uses var(--ptint)
+  // which is defined for both modes. good already used var(--gtint).
+  var bg = n.type==='critical'?'rgba(192,57,43,0.12)':n.type==='warning'?'rgba(243,156,18,0.12)':n.type==='good'?'var(--gtint)':'var(--ptint)';
   var border = n.type==='critical'?'#c0392b':n.type==='warning'?'var(--amb)':n.type==='good'?'var(--grn)':'var(--pri)';
-  h += '<div style="padding:10px 14px;margin-bottom:8px;background:'+bg+';border-left:4px solid '+border+';border-radius:var(--radius);font-size:12px">'+icon+' '+n.text+'</div>';
+  h += '<div style="padding:10px 14px;margin-bottom:8px;background:'+bg+';color:var(--txt);border-left:4px solid '+border+';border-radius:var(--radius);font-size:12px">'+icon+' '+n.text+'</div>';
  });
  h += '</div></div>';
 
