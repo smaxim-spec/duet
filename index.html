@@ -313,9 +313,19 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.16.9';
+var APP_VERSION = 'v1.17.0';
 var APP_BUILD_DATE = '2026-05-09';
 var CHANGELOG = [
+ {ver:'v1.17.0', date:'2026-05-09', notes:[
+  'NEW: Calley sync now reads from the Firebase webhook log directly instead of the Calley REST API',
+  'Root cause of "calls not syncing": the legacy calleySyncResults function called Calley API via duet_server.py:8787/calley-proxy — only worked on the laptop with the proxy running and a valid API token. Webhooks were arriving in Firebase fine, just never being consumed.',
+  'New syncCalleyFromWebhook() reads /calley_webhook_logs and ingests new calls into matching leads by phone (last 10 digits). No API token, no proxy — works on any device, real-time.',
+  'Dedup: each webhook log entry\'s Firebase auto-key is used as the calleyId on the resulting callLog entry, so re-runs never double-import.',
+  'Same disposition map + stage transitions as the legacy sync (Connected → connected, Discovery → discovery, Lost → lost, etc.)',
+  'New 🔄 Sync Calley button appears wherever the "Last sync" indicator shows.',
+  'Auto-runs silently 4s after CRM load so new calls appear without a click.',
+  'One-shot run before this release imported 50 backlogged webhook calls + 31 stage transitions.'
+ ]},
  {ver:'v1.16.9', date:'2026-05-09', notes:[
   'Fix: Coach Notes (🚨 Critical / ⚠️ Warning / 💡 Insight) had hard-coded light backgrounds with no explicit text color — unreadable in dark mode',
   'Now: critical + warning use rgba-tinted backgrounds that work in both modes; insight uses var(--ptint); all coach notes get explicit color:var(--txt)',
@@ -1776,6 +1786,113 @@ function calleyExportCSV(){
  document.body.removeChild(a);
  URL.revokeObjectURL(url);
  showToast('📁 Exported ' + exportLeads.length + ' leads to XLS', 3000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CALLEY WEBHOOK SYNC — reads Calley call data from Firebase
+// /calley_webhook_logs (written by the Cloudflare Worker as Calley
+// fires post-call webhooks). This is the RELIABLE sync path — no
+// API token, no proxy dependency, works on any device, real-time.
+//
+// Replaces the legacy calleySyncResults (which used the Calley REST
+// API through duet_server.py's local proxy — only worked on laptop
+// and depended on the API token + proxy being healthy).
+//
+// Dedup: each webhook log's Firebase auto-key is used as the
+// calleyId on the corresponding callLog entry, so re-runs never
+// double-import.
+// ═══════════════════════════════════════════════════════════════
+function syncCalleyFromWebhook(silent){
+ if(!silent) showToast('🔄 Syncing Calley calls from webhook logs…', 2500);
+ return fetch('https://duet-crm-default-rtdb.firebaseio.com/calley_webhook_logs.json')
+  .then(function(r){ return r.json(); })
+  .then(function(logs){
+   if(!logs){ if(!silent) showToast('No webhook log entries found', 3000); return; }
+   var keys = Object.keys(logs);
+   var imported = 0, skipped = 0, stageMoves = [];
+   keys.forEach(function(fbKey){
+    var e = logs[fbKey];
+    if(!e) return;
+    var pb = e.parsedBody || {};
+    var mobile = ((pb.Mobile||'')+'').replace(/\D/g,'');
+    if(mobile.length > 10) mobile = mobile.slice(-10);
+    if(!mobile) return;
+    var lead = leads.find(function(l){
+     var p = ((l.phone||'')+'').replace(/\D/g,'');
+     if(p.length > 10) p = p.slice(-10);
+     return p === mobile;
+    });
+    if(!lead){ skipped++; return; }
+    // Dedup — skip if this Firebase key already in the lead's callLog
+    if((lead.callLog||[]).some(function(c){ return c && c.calleyId === fbKey; })){ skipped++; return; }
+    var feedback = pb['Feed Back'] || 'No Answer';
+    var outcome = CALLEY_DISPOSITION_MAP[feedback] || 'No Answer';
+    var dateOfCall = pb['Date Of Call'] || '';
+    var duration = pb['Call Duration'] || '0:00';
+    var callNote = pb['Call Note'] || '';
+    // Parse Calley date "2026-05-13 12:08:01" → ISO
+    var isoDate;
+    try {
+     var parts = dateOfCall.split(/[\s\-:]/);
+     if(parts.length >= 6){
+      isoDate = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2], +parts[3], +parts[4], +parts[5])).toISOString();
+     } else { isoDate = new Date().toISOString(); }
+    } catch(e){ isoDate = new Date().toISOString(); }
+    if(!lead.callLog) lead.callLog = [];
+    lead.callLog.push({
+     date: isoDate,
+     outcome: outcome,
+     block: 'calley',
+     notes: '📱 Calley sync — ' + duration + (callNote ? (' — '+callNote) : ''),
+     calleyId: fbKey
+    });
+    imported++;
+    // Apply stage transitions (same logic as legacy API sync)
+    var prevStage = lead.stage;
+    if(outcome === 'Connected' && (lead.stage === 'new' || lead.stage === 'attempting')) lead.stage = 'connected';
+    if(outcome === 'Discovery' && (lead.stage === 'new' || lead.stage === 'attempting' || lead.stage === 'connected')) lead.stage = 'discovery';
+    if(outcome === 'Appt Set') lead.stage = 'meeting_set';
+    if(outcome === 'Nurturing'){ lead.stage = 'incubator'; if(!lead.incubatorTemp) lead.incubatorTemp = 'warm'; }
+    if(outcome === 'Lost'){ lead.stage = 'lost'; if(!lead.lostReason) lead.lostReason = 'Not Interested'; }
+    if(outcome === 'Bad #'){ lead.stage = 'lost'; lead.lostReason = 'Bad Number'; }
+    if(outcome === 'Quoted') lead.stage = 'quoted';
+    if(lead.stage === 'new' && (outcome === 'No Answer' || outcome === 'Left VM')){
+     if((lead.callLog||[]).length >= 3) lead.stage = 'attempting';
+    }
+    if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 10){
+     var anySpoke = (lead.callLog||[]).some(function(c){return c.outcome==='Connected'||c.outcome==='Discovery'||c.outcome==='Appt Set'});
+     if(!anySpoke){ lead.stage = 'lost'; lead.lostReason = 'No Contact After Max Attempts'; }
+    }
+    if(lead.stage !== prevStage){
+     lead.stageEnteredDate = isoDate;
+     stageMoves.push(lead.name+': '+CRM_STAGE_LABELS[prevStage]+' → '+CRM_STAGE_LABELS[lead.stage]);
+    }
+   });
+   if(imported > 0){
+    saveLeads();
+    localStorage.setItem('calley_last_sync', new Date().toISOString());
+    var msg = '✅ Calley webhook sync: '+imported+' new call'+(imported===1?'':'s')+' imported';
+    if(stageMoves.length > 0) msg += '<br><span style="font-size:11px">'+stageMoves.slice(0,5).join('<br>')+(stageMoves.length>5?'<br>… and '+(stageMoves.length-5)+' more':'')+'</span>';
+    if(!silent) showToast(msg, 8000);
+    try { renderCRM(); } catch(e){}
+   } else if(!silent){
+    showToast('✅ Calley up to date — no new calls', 3000);
+   }
+   return {imported: imported, skipped: skipped};
+  })
+  .catch(function(err){
+   console.error('Calley webhook sync failed:', err);
+   if(!silent) showToast('❌ Calley sync failed: '+err.message, 5000);
+  });
+}
+
+// Auto-run webhook sync on CRM load (silent — only toasts if new calls).
+// Runs after the existing forceCloudSync settles (~3s after init) so leads
+// array is fresh before we try to match phones.
+if(typeof window !== 'undefined'){
+ setTimeout(function(){
+  try { syncCalleyFromWebhook(true); } catch(e){ console.error('auto Calley sync error', e); }
+ }, 4000);
 }
 
 function calleySyncResults(){
@@ -7795,6 +7912,7 @@ function renderCallQueue(){
   h += '<span id="calleyExportList" data-leads=\''+JSON.stringify(exportableLeads.map(function(l){return l.id}))+'\' style="display:none"></span>';
   h += '<span id="calleyFilterLabel" style="display:none">'+filterLabel+'</span>';
   if(calleyPushedCount > 0) h += '<span style="font-size:9px;color:#ff6b35">📱 '+calleyPushedCount+' in Calley</span>';
+  h += '<button class="btn btn-sm" onclick="syncCalleyFromWebhook()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Pull Calley call results from the webhook log (no API token needed)">🔄 Sync Calley</button>';
   var lastSync = localStorage.getItem('calley_last_sync');
   if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
   h += '</div>';

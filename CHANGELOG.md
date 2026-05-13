@@ -2,9 +2,38 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.16.4` · Updated 2026-05-07
+> **Current version:** `v1.17.0` · Updated 2026-05-09
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.17.0 — 2026-05-09 — Calley sync reads webhook logs (fix)
+
+**Root cause of "calls not syncing":** the legacy `calleySyncResults` called Calley's REST API via `duet_server.py:8787/calley-proxy` — only worked on the laptop with the proxy running and a valid API token. Webhook posts were arriving in Firebase `/calley_webhook_logs` fine, but nothing in the CRM ever consumed them.
+
+**Fix:** new `syncCalleyFromWebhook()` reads the Firebase webhook log directly and ingests new calls into matching leads by phone (last 10 digits). Same disposition map + stage transitions as the legacy API sync.
+
+- No API token needed
+- No `/calley-proxy` dependency
+- Works on phone too (not just laptop)
+- Real-time — webhook posts arrive in Firebase the instant Calley fires
+- Dedup via Firebase auto-key as the `calleyId`
+- New 🔄 Sync Calley button next to the "Last sync" indicator
+- Auto-runs silently 4s after CRM load
+
+**One-shot run before this release imported 50 backlogged webhook calls + 31 stage transitions** (Annita Garcia → attempting, Saengon → lost, Tracie → attempting, James Payne → incubator, etc.).
+
+---
+
+## v1.16.9 → v1.16.5 — 2026-05-09 — Coach-notes contrast + report polish
+
+Small iterative fixes:
+- v1.16.9: Coach Notes (🚨 Critical / ⚠️ Warning / 💡 Insight) had hard-coded light backgrounds — unreadable in dark mode. Now use rgba tints + explicit text color.
+- v1.16.8: Sales Mastery / Lesson of the Week card dark-mode readability fix (assumed shipped — see v1.16.8 in-app notes).
+- v1.16.7: Policy badge colors aligned to DuetBooks scheme — Issued/Approved → purple, Submitted → amber, Pending → red, Paid → green, Declined → gray. Applied to Activity table, lead-detail Policy badge, and email HTML.
+- v1.16.6: Swapped weekly report section order — Cases Submitted now above Activity (both in-app and email).
+- v1.16.5: Renamed "Won Activity This Week" → "Activity for This Week" (accurately reflects coverage of Won + Lost + Policy advances + Declines).
 
 ---
 
