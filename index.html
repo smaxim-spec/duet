@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.17.0';
+var APP_VERSION = 'v1.17.1';
 var APP_BUILD_DATE = '2026-05-09';
 var CHANGELOG = [
+ {ver:'v1.17.1', date:'2026-05-09', notes:[
+  'Fix: phone → laptop sync only ran on page load / when 🔄 Sync was clicked, so phone-added leads sat in /phone_inbox_leads until you reloaded the laptop (Marilyn Pedroso was stuck for ~hours before being noticed)',
+  'Now: laptop auto-polls /phone_inbox_leads every 60 seconds in the background, ingesting new phone-captured leads in near-real-time',
+  'No-op on phone (only laptop ingests). Idempotent — dedup-by-phone inside ingestPhoneInbox handles re-runs safely.',
+  'One-shot run before this release ingested Marilyn Pedroso (id #526) and cleared the inbox.'
+ ]},
  {ver:'v1.17.0', date:'2026-05-09', notes:[
   'NEW: Calley sync now reads from the Firebase webhook log directly instead of the Calley REST API',
   'Root cause of "calls not syncing": the legacy calleySyncResults function called Calley API via duet_server.py:8787/calley-proxy — only worked on the laptop with the proxy running and a valid API token. Webhooks were arriving in Firebase fine, just never being consumed.',
@@ -952,6 +958,18 @@ function firebaseLoadAll(callback){
 // and /phone_inbox_appts (Firebase auto-id object keys). Desktop pulls these on
 // load, dedupes, appends to main arrays, and clears the inbox. Phone never
 // writes to /leads or /appointments directly — eliminates merge conflicts.
+// Periodic auto-poll so phone → laptop syncs happen without a manual reload.
+// Runs every 60s on the laptop side; no-op on phone. Idempotent — the dedup-by-phone
+// logic inside ingestPhoneInbox handles re-runs safely.
+if(typeof window !== 'undefined'){
+ setTimeout(function startPhoneInboxPoll(){
+  if(typeof isPhone === 'function' && isPhone()) return; // phones don't ingest
+  setInterval(function(){
+   try { ingestPhoneInbox(); } catch(e){ console.log('[PhoneInbox] periodic poll error:', e); }
+  }, 60000);
+ }, 8000); // start polling 8s after init so initial forceCloudSync settles first
+}
+
 function ingestPhoneInbox(){
  if(isPhone()) return;
  // Leads inbox
