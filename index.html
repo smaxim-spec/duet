@@ -313,9 +313,19 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.17.1';
-var APP_BUILD_DATE = '2026-05-09';
+var APP_VERSION = 'v1.18.0';
+var APP_BUILD_DATE = '2026-05-17';
 var CHANGELOG = [
+ {ver:'v1.18.0', date:'2026-05-17', notes:[
+  'NEW: Loss-reason modal — when a user marks a lead Lost, a modal prompts for a structured reason + optional notes (max 150 chars)',
+  'Reasons list replaced with 5: Not interested / Already insured / Underwriting or health issue / Objection not resolved / Timing or not ready',
+  'Two existing UI entry points (lead-detail Move row + needs-analysis Mark Lost) now both open the modal',
+  'Cancel = no writes, lead stays at its previous stage (true no-op)',
+  'New optional field lead.lossNotes (max 150 chars) for the free-text note',
+  'Auto-loss paths unchanged — Calley sync, 10-attempt timeout, and Bad # dispositions still set lostReason directly with their default labels (no modal popups during unattended sync)',
+  'Activity report 📉 Lost label now appends the reason when recorded — e.g. "📉 Lost (Timing / not ready)" — old records without a reason display as before',
+  'Old records keep their existing labels (Went Elsewhere, Bad Timing, Did Not Qualify, etc.) — no migration ran'
+ ]},
  {ver:'v1.17.1', date:'2026-05-09', notes:[
   'Fix: phone → laptop sync only ran on page load / when 🔄 Sync was clicked, so phone-added leads sat in /phone_inbox_leads until you reloaded the laptop (Marilyn Pedroso was stuck for ~hours before being noticed)',
   'Now: laptop auto-polls /phone_inbox_leads every 60 seconds in the background, ingesting new phone-captured leads in near-real-time',
@@ -1504,7 +1514,12 @@ var CRM_STAGE_COLORS = {new:'#3498db',attempting:'#e67e22',connected:'#f39c12',d
 var POLICY_STATUS_LABELS = {pending:'Pending',submitted:'Submitted',approved:'Approved',issued:'Issued',paid:'Paid','paid-partial':'Paid (Partial)',declined:'Declined'};
 var POLICY_STATUS_COLORS = {pending:'#D94545',submitted:'#EF9F27',approved:'var(--pri)',issued:'var(--pri)',paid:'var(--grn)','paid-partial':'#EF9F27',declined:'#777'};
 var CALL_OUTCOMES = ['No Answer','Left VM','Bad #','Connected','Discovery','Appt Set','Confirmed','Rescheduled','Quoted','App Submitted','Won','Nurturing','Lost','Callback'];
-var LOST_REASONS = ['Not Interested','Went Elsewhere','Did Not Qualify','Bad Timing','No Contact After Max Attempts','Price','Incorrect Number','Other'];
+// Loss-reason taxonomy. Replaced 2026-05-17 with a tighter 5-item list.
+// Older records may still carry legacy labels ("Went Elsewhere", "Bad Timing",
+// "Did Not Qualify", "Price", "Incorrect Number", "Other", "No Contact After
+// Max Attempts", "Bad Number") — those are preserved on the record and display
+// as-is in the report. Only newly-captured losses use the new 5.
+var LOST_REASONS = ['Not interested','Already insured','Underwriting / health issue','Objection not resolved','Timing / not ready'];
 var WIN_REASONS = ['Great Fit','Agent Referral Trust','Price Competitive','Urgency/Need','Existing Relationship','Product Match','Other'];
 var INCUBATOR_TEMPS = ['hot','warm','cool'];
 var MEETING_TYPES = ['In-Person: Venice Office','In-Person: Sarasota Office','Zoom','Phone'];
@@ -3572,7 +3587,10 @@ function genReport(weekStartYMDArg){
     changes.push('🆕 New Win');
    }
    if(l.stage === 'lost' && l.stageEnteredDate >= thisThursISO && l.stageEnteredDate <= weekEndYMD+'T23:59:59.999Z'){
-    changes.push('📉 Lost');
+    // Append the recorded loss reason if present (old records may lack one — display as before)
+    var lostLabel = '📉 Lost';
+    if(l.lostReason) lostLabel += ' (' + l.lostReason + ')';
+    changes.push(lostLabel);
    }
    if(l.policyStatus && l.policyStatusChangedDate && l.policyStatusChangedDate >= thisThursISO && l.policyStatusChangedDate <= weekEndYMD+'T23:59:59.999Z'){
     var psLbl = POLICY_STATUS_LABELS[l.policyStatus] || l.policyStatus;
@@ -4857,6 +4875,93 @@ function setLostReason(id, reason){
  lead.stage = 'lost';
  lead.stageEnteredDate = new Date().toISOString();
  saveLeads();
+ renderCRM();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOSS-REASON MODAL — user-initiated transitions to Lost go through
+// this dialog so we capture a structured reason + optional notes.
+// Auto-loss paths (Calley sync, 10-attempt timeout, "Bad #" disposition)
+// continue to set stage='lost' directly with their default lostReason and
+// do NOT open this modal — those happen unattended.
+//
+// On Save: writes lead.stage='lost', lead.lostReason, lead.lossNotes.
+// On Cancel: closes modal, no writes — lead stays at its prior stage.
+// ═══════════════════════════════════════════════════════════════
+function openLossModal(leadId){
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead) return;
+ // Capture prior stage so Cancel is a true no-op
+ var priorStage = lead.stage;
+ var overlay = document.createElement('div');
+ overlay.id = 'lossModalOverlay';
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+ var h = '<div style="background:var(--bg);max-width:440px;width:100%;border-radius:12px;padding:22px;box-shadow:0 8px 32px rgba(0,0,0,.4);color:var(--txt)">';
+ h += '<h3 style="margin:0 0 6px;color:#c0392b">📉 Mark ' + escapeHtml(lead.name) + ' as Lost</h3>';
+ h += '<p style="font-size:12px;color:var(--muted);margin:0 0 16px">Capture a structured reason so this shows up in the weekly report.</p>';
+
+ // Field 1 — required reason dropdown
+ h += '<div style="margin-bottom:14px">';
+ h += '<label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Loss Reason <span style="color:#c0392b">*</span></label>';
+ h += '<select id="loss_reason_input" style="width:100%;padding:8px;font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:6px">';
+ h += '<option value="">— Select a reason —</option>';
+ LOST_REASONS.forEach(function(r){
+  h += '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + '</option>';
+ });
+ h += '</select>';
+ h += '</div>';
+
+ // Field 2 — optional notes, max 150 chars
+ h += '<div style="margin-bottom:18px">';
+ h += '<label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Notes <span style="color:var(--muted);font-size:10px">(optional, max 150 chars)</span></label>';
+ h += '<input id="loss_notes_input" type="text" maxlength="150" placeholder="Add context if helpful (one line)" style="width:100%;padding:8px;font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:6px;box-sizing:border-box">';
+ h += '<div style="font-size:10px;color:var(--muted);margin-top:3px"><span id="loss_notes_count">0</span>/150</div>';
+ h += '</div>';
+
+ h += '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
+ h += '<button onclick="closeLossModal()" style="padding:8px 14px;font-size:13px;background:transparent;border:1px solid var(--border);color:var(--txt);border-radius:6px;cursor:pointer">Cancel</button>';
+ h += '<button onclick="saveLossModal(' + lead.id + ',\'' + escapeHtml(priorStage) + '\')" class="btn btn-pri" style="padding:8px 14px;font-size:13px;font-weight:700;background:#c0392b;color:#fff;border:none">Save — Mark Lost</button>';
+ h += '</div>';
+ h += '</div>';
+ overlay.innerHTML = h;
+ document.body.appendChild(overlay);
+
+ // Live char count + focus
+ setTimeout(function(){
+  var notesEl = document.getElementById('loss_notes_input');
+  var countEl = document.getElementById('loss_notes_count');
+  if(notesEl && countEl){
+   notesEl.addEventListener('input', function(){ countEl.textContent = notesEl.value.length; });
+  }
+  var reasonEl = document.getElementById('loss_reason_input');
+  if(reasonEl) reasonEl.focus();
+ }, 30);
+}
+
+function closeLossModal(){
+ var o = document.getElementById('lossModalOverlay');
+ if(o) o.remove();
+}
+
+function saveLossModal(leadId, priorStage){
+ var lead = leads.find(function(l){return l.id === leadId});
+ if(!lead){ closeLossModal(); return; }
+ var reasonEl = document.getElementById('loss_reason_input');
+ var notesEl = document.getElementById('loss_notes_input');
+ var reason = reasonEl ? (reasonEl.value || '').trim() : '';
+ var notes = notesEl ? (notesEl.value || '').trim().slice(0, 150) : '';
+ if(!reason){
+  if(reasonEl){ reasonEl.style.borderColor = '#c0392b'; reasonEl.focus(); }
+  showToast('Pick a loss reason first', 3000);
+  return;
+ }
+ lead.stage = 'lost';
+ lead.lostReason = reason;
+ if(notes) lead.lossNotes = notes;
+ lead.stageEnteredDate = new Date().toISOString();
+ saveLeads();
+ closeLossModal();
+ showToast('📉 ' + lead.name + ' → Lost (' + reason + ')', 4000);
  renderCRM();
 }
 
@@ -8778,9 +8883,8 @@ function renderLeadDetail(){
   if(s === lead.stage) return;
   if(lead.stage === 'won' && (s === 'app_submitted' || s === 'won')) return;
   if(s === 'lost'){
-   h += '<select onchange="if(this.value)setLostReason('+lead.id+',this.value);this.value=\'\'" style="font-size:10px;width:auto;padding:2px 6px"><option value="">Lost...</option>';
-   LOST_REASONS.forEach(function(r){h += '<option value="'+r+'">'+r+'</option>'});
-   h += '</select>';
+   // Opens the loss-reason modal; modal Save commits stage='lost', modal Cancel is a no-op.
+   h += '<button class="btn btn-sm" onclick="openLossModal('+lead.id+')" style="background:#c0392b;color:#fff;border:none;padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer">📉 Mark Lost</button>';
   } else {
    h += '<button class="btn btn-sm btn-outline" onclick="updateLeadStage('+lead.id+',\''+s+'\')" style="font-size:10px;padding:2px 6px">'+CRM_STAGE_LABELS[s]+'</button>';
   }
@@ -9017,9 +9121,8 @@ function renderLeadDetail(){
   if(isDiscovery){
    h += '<button class="btn btn-pri btn-sm" onclick="saveNeedsAnalysis('+lead.id+');updateLeadStage('+lead.id+',\'meeting_set\')">Schedule Meeting →</button>';
    h += '<button class="btn btn-sm" onclick="saveNeedsAnalysis('+lead.id+');setNurturingTemp('+lead.id+',\'warm\')" style="background:#9b59b6;color:#fff">Move to Nurturing</button>';
-   h += '<select onchange="if(this.value){saveNeedsAnalysis('+lead.id+');setLostReason('+lead.id+',this.value);this.value=\'\'}" style="font-size:11px;width:auto;padding:4px 8px"><option value="">Mark Lost...</option>';
-   LOST_REASONS.forEach(function(r){h += '<option value="'+r+'">'+r+'</option>'});
-   h += '</select>';
+   // Save needs-analysis answers, then open modal to capture loss reason + optional notes
+   h += '<button class="btn btn-sm" onclick="saveNeedsAnalysis('+lead.id+');openLossModal('+lead.id+')" style="background:#c0392b;color:#fff;border:none;padding:4px 12px;font-size:11px;border-radius:4px;cursor:pointer">📉 Mark Lost</button>';
   }
   h += '</div>';
   h += '</div>'; // end collapsible na
