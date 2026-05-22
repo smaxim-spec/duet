@@ -2,9 +2,49 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.17.0` · Updated 2026-05-09
+> **Current version:** `v1.18.0` · Updated 2026-05-17
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.18.0 — 2026-05-17 — Loss-reason modal + new 5-item reasons list
+
+Marking a lead Lost now opens a modal that captures a structured reason + optional notes (max 150 chars). Replaces the inline `Lost...` dropdown that committed instantly on click — no Cancel path before.
+
+**New 5-item LOST_REASONS list** (replaced old 8-item list):
+- Not interested
+- Already insured
+- Underwriting / health issue
+- Objection not resolved
+- Timing / not ready
+
+Old records keep their legacy labels (`Went Elsewhere`, `Bad Timing`, `Did Not Qualify`, etc.) — no migration ran, fields stay nullable.
+
+**Modal behavior:**
+- Required reason dropdown (5 options)
+- Optional 150-char notes field (live char counter)
+- Save commits `stage='lost'` + `lostReason` + `lossNotes`
+- Cancel = no writes, lead stays at previous stage (true no-op)
+
+**Auto-loss paths unchanged** — Calley sync receiving Lost outcome, 10-attempt timeout, and "Bad #" disposition still set `lostReason` directly with their default labels. No modal popups during unattended sync.
+
+**Activity report** — `📉 Lost` label now appends the reason when recorded: `📉 Lost (Timing / not ready)`. Old records without a reason display as before.
+
+Backup pre-build: `/backups/pre_loss_modal_20260517T211715`.
+
+---
+
+## v1.17.1 — 2026-05-09 — Phone-inbox auto-poll every 60s
+
+Phone-to-laptop sync previously only ran on page load or when the user clicked the 🔄 Sync button. Phone-added leads (Marilyn Pedroso was the recurring example) sat in `/phone_inbox_leads` until the laptop was reloaded.
+
+- Laptop now auto-polls `/phone_inbox_leads` every 60s via `setInterval(ingestPhoneInbox, 60000)`
+- Starts 8s after init so initial `forceCloudSync` settles first
+- No-op on phone (only laptop ingests)
+- Idempotent — dedup-by-phone handles re-runs safely
+
+One-shot before this release ingested Marilyn Pedroso (id #526) from the stuck inbox.
 
 ---
 

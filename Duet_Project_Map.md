@@ -2,10 +2,66 @@
 
 > Use this to orient any new conversation. Ask to work on a specific section by name.
 >
-> **Current version:** `v1.12.3` (2026-04-30) — see [CHANGELOG.md](./CHANGELOG.md) for full version history.
+> **Current version:** `v1.18.0` (2026-05-17) — see [CHANGELOG.md](./CHANGELOG.md) for full version history.
+> **Companion:** DuetBooks `v1.3.0` (2026-05-07) — at `~/Desktop/DuetBooks/DuetBooks.html`.
+
+## Recent Architectural Additions (since v1.12.3)
+
+These are the major changes someone picking up a new session needs to know about:
+
+### Two-Status Model (v1.16.1 + v1.16.2 + v1.16.3 + DuetBooks v1.3.0)
+- Every lead now carries **two** statuses:
+  - **Opportunity status** = CRM `lead.stage` (terminal at Won/Lost — never auto-revert)
+  - **Policy status** = `lead.policyStatus` (mirrors DuetBooks case lifecycle: pending/submitted/approved/issued/paid/paid-partial/declined)
+- Linked via `case.crmLeadId` written by `convertToPipeline` / `showCreateCaseModal` / `importCRMLead`
+- DuetBooks pushes status changes back via PATCH `/leads/data/<idx>/policyStatus` (single-field patch, no race with concurrent CRM saves)
+- Lead detail displays both badges side-by-side
+- New `lead.declineReason` flow: when `policyStatus='declined'`, banner prompts for reason → prepends `DECLINE:` historyNote
+- Weekly Report has new flat-table "Activity for This Week" section above "Cases Submitted This Week" — activity-based filter (new Wins / policy advances / settled / declined / lost this week)
+- App Submitted stage **never** auto-pushes to DuetBooks (intentionally — used for 50/50 hedging)
+
+### CRM Cleanup Tool (v1.16.0)
+- New `🧹 Cleanup` tab in CRM nav. Reconciles CRM Won leads against DuetBooks cases.
+- Three buckets: ✅ Safe to remove / ⚠️ Review (mismatches or CRM-only data) / ❌ No match
+- Bulk-delete with optional historyNotes/wonReason copy to DuetBooks notes
+- Pre-delete snapshot always written to `/backups/cleanup_TIMESTAMP`
+- Won-only scope (App Submitted excluded per architecture)
+
+### DuetBooks → CRM Pending Banner (DuetBooks v1.2.0 / v1.3.0)
+- DuetBooks Dashboard banner: "N Won leads in DuetCRM not yet in DuetBooks"
+- Modal lists each with prefilled data; per-row Import creates the DuetBooks case + initial `status='submitted'` + writes `crmLeadId`
+- Match rule: fuzzy client name (lowercase + strip non-alphanumeric) AND phone (last 10 digits) when both sides have phone
+- One-shot `backfillCrmLeadIds()` parses `"From CRM lead #N"` out of legacy case notes
+
+### Calley Webhook Sync (v1.17.0)
+- Replaces the broken `calleySyncResults` API path (used `localhost:8787/calley-proxy` + valid Calley token)
+- New `syncCalleyFromWebhook()` reads `/calley_webhook_logs` directly (no proxy, no token, works on phone)
+- Webhook Firebase auto-key used as `calleyId` for dedup
+- Auto-runs silently 4s after CRM load + manual `🔄 Sync Calley` button
+- Source of webhook: Cloudflare Worker at `calley-webhook.smaxim.workers.dev`
+
+### Phone Inbox Auto-Poll (v1.17.1)
+- Laptop polls `/phone_inbox_leads` every 60s in the background (in addition to load-time + manual Sync)
+- Phone-added leads appear on laptop within a minute without reload
+- No-op on phone (only laptop ingests)
+
+### Loss-Reason Modal (v1.18.0)
+- Marking a lead Lost now opens a modal: required reason dropdown (5 options) + optional 150-char notes
+- New `LOST_REASONS`: Not interested / Already insured / Underwriting / health issue / Objection not resolved / Timing / not ready
+- Old records preserve legacy labels (no migration)
+- Cancel = no writes (true no-op); auto-loss paths unchanged
+- Activity report appends loss reason: `📉 Lost (Timing / not ready)`
+
+### Dark Mode Polish (v1.16.9)
+- Coach Notes (Critical/Warning/Insight) had hard-coded light backgrounds — fixed with rgba tints + explicit `color:var(--txt)`
+- Other dark-mode contrast fixes throughout
+
+### Tap-to-Call Disposition (v1.15.6 → v1.15.8)
+- Tapping a phone-queue Call button now opens dialer + disposition prompt (Left VM / No Answer / Bad # / Connected / Discovery / Appt Set / Nurturing / Lost)
+- Disposition prompt uses `setTimeout(showCallOutcomePrompt, 0, leadId)` so the dialer opens instantly, toast appears on return
 
 ## Architecture Overview
-- **Single HTML file** (current name: `DuetCRM.html`, ~10,800 lines as of v1.12.3)
+- **Single HTML file** (current name: `DuetCRM.html`, ~12,800 lines as of v1.18.0)
   - Source of truth: `~/.duet-server/DuetCRM.html`
   - Synced to: `~/.duet-server/index.html`, `~/Desktop/Duet/DuetCRM.html`, `~/Desktop/Duet/index.html`
 - **No external dependencies** — inline CSS + JS, self-contained
