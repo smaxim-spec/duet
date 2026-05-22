@@ -11,7 +11,7 @@
 flowchart TD
     NEW[🆕 NEW<br/>Lead just added, never called]
 
-    NEW -->|3 calls<br/>No Answer/Left VM<br/>auto| ATT[📞 ATTEMPTING<br/>Tried but not reached]
+    NEW -->|first dial<br/>any outcome<br/>auto (v1.19.0)| ATT[📞 ATTEMPTING<br/>Tried but not reached]
     NEW -->|Connected| CONN[🤝 CONNECTED<br/>Picked up, brief chat]
     NEW -->|Discovery| DISC[🔍 DISCOVERY<br/>Real conversation, qualifying]
     NEW -->|Appt Set| MTG[📅 MEETING SET<br/>Appointment booked]
@@ -19,7 +19,7 @@ flowchart TD
     ATT -->|Connected| CONN
     ATT -->|Discovery| DISC
     ATT -->|Appt Set| MTG
-    ATT -->|10 attempts,<br/>no contact<br/>auto| LOSTAUTO[❌ LOST<br/>'No Contact After Max Attempts']
+    ATT -->|5 attempts,<br/>no contact<br/>auto (v1.19.0)| LOSTAUTO[❌ LOST<br/>'No Contact After Max Attempts']
 
     CONN -->|Discovery| DISC
     CONN -->|Appt Set| MTG
@@ -90,14 +90,14 @@ flowchart TD
 
 | From | To | Trigger | Auto/Manual |
 |---|---|---|---|
-| `new` | `attempting` | 3+ calls logged with No Answer / Left VM | 🤖 **AUTO** (logCall + Calley sync) |
+| `new` | `attempting` | Any first dial (v1.19.0 — was 3+ No Answer/Left VM) | 🤖 **AUTO** (logCall + Calley sync) |
 | `new`/`attempting` | `connected` | Disposition = "Connected" | 👆 Manual |
 | `new`/`attempting`/`connected` | `discovery` | Disposition = "Discovery" | 👆 Manual |
 | any active | `meeting_set` | Disposition = "Appt Set" | 👆 Manual |
 | `discovery`/`meeting_set`/`quoted` | `quoted` | Disposition = "Quoted" / manual stage | 👆 Manual |
 | `quoted`/`meeting_set` | `app_submitted` | Disposition = "App Submitted" | 👆 Manual — **NOT pushed to DuetBooks** |
 | `quoted`/`app_submitted` | `won` | Disposition = "Won" / manual stage | 👆 Manual — **AUTO-pushes to DuetBooks at status=submitted** |
-| `attempting` | `lost` (auto) | 10+ attempts, no contact ever | 🤖 **AUTO** — reason "No Contact After Max Attempts" |
+| `attempting` | `lost` (auto) | 5+ attempts (v1.19.0 — was 10+), no contact ever | 🤖 **AUTO** — reason "No Contact After Max Attempts" |
 | any | `lost` (user) | Click "📉 Mark Lost" button | 👆 Modal — required reason + optional 150-char notes |
 | any | `lost` (Calley) | Calley feedback "Lost" or "Bad #" | 🤖 **AUTO** — defaults "Not Interested" / "Bad Number" |
 | any | `incubator` | Disposition = "Nurturing" | 👆 Manual — temp=warm by default |
@@ -151,8 +151,8 @@ Every status change in DuetBooks **pushes back to the matching CRM lead** via `P
 ```
 Did they pick up?
 ├── No  → Pick: No Answer / Left VM / Bad #
-│         └── 3rd call → AUTO-promotes to Attempting
-│         └── 10th call with no contact → AUTO-marks Lost
+│         └── 1st call → AUTO-promotes to Attempting (v1.19.0)
+│         └── 5th call with no contact → AUTO-marks Lost (v1.19.0)
 ├── Yes, briefly → "Connected" → stage moves to Connected
 ├── Yes, real talk → "Discovery" → stage moves to Discovery
 ├── Yes, booked → "Appt Set" → stage moves to Meeting Set + Quick Book opens

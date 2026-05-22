@@ -313,9 +313,17 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.18.0';
-var APP_BUILD_DATE = '2026-05-17';
+var APP_VERSION = 'v1.19.0';
+var APP_BUILD_DATE = '2026-05-22';
 var CHANGELOG = [
+ {ver:'v1.19.0', date:'2026-05-22', notes:[
+  'Rule change: ANY first dial now promotes New → Attempting (was: required 3+ No Answer/Left VM). Goal: keep the New bucket a "fresh leads only" priority queue. Outcomes that promote elsewhere (Connected/Discovery/Appt Set/Won/Lost/Bad #) still take precedence.',
+  'Rule change: Auto-lost threshold lowered from 10 attempts → 5 attempts (still gated on "no Connected/Discovery/Appt Set ever"; reason stays "No Contact After Max Attempts").',
+  'Applied to all 3 stage-rule sites in code: main logCall, syncCalleyFromWebhook, and the legacy calleySyncResults.',
+  'Data rebase: 131 existing leads sitting in stage=new with 1+ callLog entries were bumped to stage=attempting. Their stageEnteredDate was set to the date of their last callLog entry (not today) so the weekly report does NOT show a flood of fake "stage moved this week" events.',
+  'Backup pre-rebase: /backups/pre_stage_rules_20260522T100423',
+  'Updated Stage_Flow_Mindmap.md to reflect the new thresholds.'
+ ]},
  {ver:'v1.18.0', date:'2026-05-17', notes:[
   'NEW: Loss-reason modal — when a user marks a lead Lost, a modal prompts for a structured reason + optional notes (max 150 chars)',
   'Reasons list replaced with 5: Not interested / Already insured / Underwriting or health issue / Objection not resolved / Timing or not ready',
@@ -1889,11 +1897,14 @@ function syncCalleyFromWebhook(silent){
     if(outcome === 'Lost'){ lead.stage = 'lost'; if(!lead.lostReason) lead.lostReason = 'Not Interested'; }
     if(outcome === 'Bad #'){ lead.stage = 'lost'; lead.lostReason = 'Bad Number'; }
     if(outcome === 'Quoted') lead.stage = 'quoted';
-    if(lead.stage === 'new' && (outcome === 'No Answer' || outcome === 'Left VM')){
-     if((lead.callLog||[]).length >= 3) lead.stage = 'attempting';
-    }
-    if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 10){
-     var anySpoke = (lead.callLog||[]).some(function(c){return c.outcome==='Connected'||c.outcome==='Discovery'||c.outcome==='Appt Set'});
+    // v1.19.0 rule change — any callLog entry promotes New → Attempting so the New
+    // bucket stays a "fresh leads only" priority queue. Outcomes that already promote
+    // elsewhere (Connected/Discovery/Appt Set/Won/Lost/Bad #) ran earlier in this block
+    // and take precedence — those leads no longer have stage='new' by the time we get here.
+    if(lead.stage === 'new'){ lead.stage = 'attempting'; }
+    // v1.19.0 rule change — auto-lost at 5 attempts (was 10) when no contact ever made.
+    if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 5){
+     var anySpoke = (lead.callLog||[]).some(function(c){return c && c.outcome && (c.outcome==='Connected'||c.outcome==='Discovery'||c.outcome==='Appt Set'||c.outcome.indexOf('Spoke')===0)});
      if(!anySpoke){ lead.stage = 'lost'; lead.lostReason = 'No Contact After Max Attempts'; }
     }
     if(lead.stage !== prevStage){
@@ -1987,11 +1998,13 @@ function calleySyncResults(){
    if(duetOutcome === 'Lost'){ lead.stage = 'lost'; if(!lead.lostReason) lead.lostReason = 'Not Interested'; }
    if(duetOutcome === 'Bad #'){ lead.stage = 'lost'; lead.lostReason = 'Bad Number'; }
    if(duetOutcome === 'Quoted') lead.stage = 'quoted';
-   if(lead.stage === 'new' && (duetOutcome === 'No Answer' || duetOutcome === 'Left VM')){
-    if((lead.callLog||[]).length >= 3) lead.stage = 'attempting';
-   }
-   if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 10){
-    var anySpoke = (lead.callLog||[]).some(function(c){return c.outcome==='Connected'||c.outcome==='Discovery'||c.outcome==='Appt Set'});
+   // v1.19.0 rule change — any callLog entry promotes New → Attempting (was: 3+ calls).
+   // Earlier outcome-based stage moves take precedence — by the time we hit this, the
+   // only way stage is still 'new' is if the disposition was No Answer/Left VM/etc.
+   if(lead.stage === 'new'){ lead.stage = 'attempting'; }
+   // v1.19.0 rule change — auto-lost at 5 attempts (was 10) when no contact ever made.
+   if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 5){
+    var anySpoke = (lead.callLog||[]).some(function(c){return c && c.outcome && (c.outcome==='Connected'||c.outcome==='Discovery'||c.outcome==='Appt Set'||c.outcome.indexOf('Spoke')===0)});
     if(!anySpoke){ lead.stage = 'lost'; lead.lostReason = 'No Contact After Max Attempts'; }
    }
    if(lead.stage !== prevStage) lead.stageEnteredDate = new Date().toISOString();
@@ -4659,13 +4672,14 @@ function logCall(leadId, outcome, block, notes){
  if(outcome === 'Spoke - Not Ready'){ lead.stage = 'incubator'; if(!lead.incubatorTemp) lead.incubatorTemp = 'warm'; }
  if(outcome === 'Spoke - Not Interested'){ lead.stage = 'lost'; if(!lead.lostReason) lead.lostReason = 'Not Interested'; }
  if(outcome === 'Incorrect Number'){ lead.stage = 'lost'; lead.lostReason = 'Bad Number'; }
- // Move new → attempting only after 3 logged calls (morning, afternoon, evening cycle)
- if(lead.stage === 'new' && outcome !== 'Spoke - Interested' && outcome !== 'Spoke - Wants Info' && outcome !== 'Spoke - Not Ready' && outcome !== 'Spoke - Not Interested' && outcome !== 'Incorrect Number'){
-  if((lead.callLog||[]).length >= 3) lead.stage = 'attempting';
- }
- // Auto-lost after 10 attempts with no contact
- if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 10){
-  var anySpoke = (lead.callLog||[]).some(function(c){return c.outcome && c.outcome.indexOf('Spoke')===0});
+ // v1.19.0 rule change — any callLog entry promotes New → Attempting so New stays
+ // a "fresh leads only" priority queue. Earlier outcome-based promotions (Connected
+ // /Discovery/Appt Set/Won/Lost/Bad #) take precedence; by the time we hit this, the
+ // only leads still at stage='new' are the ones whose outcome was non-promoting.
+ if(lead.stage === 'new'){ lead.stage = 'attempting'; }
+ // v1.19.0 rule change — auto-lost after 5 attempts (was 10) with no contact
+ if(lead.stage === 'attempting' && (lead.callLog||[]).length >= 5){
+  var anySpoke = (lead.callLog||[]).some(function(c){return c && c.outcome && (c.outcome==='Connected'||c.outcome==='Discovery'||c.outcome==='Appt Set'||c.outcome.indexOf('Spoke')===0)});
   if(!anySpoke){
    lead.stage = 'lost';
    lead.lostReason = 'No Contact After Max Attempts';
