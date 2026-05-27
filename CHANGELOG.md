@@ -2,9 +2,44 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.19.2` · Updated 2026-05-27
+> **Current version:** `v1.19.3` · Updated 2026-05-27
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.19.3 — 2026-05-27 — Calley webhook auto-create stub leads (orphan-call fix)
+
+**Bug:** Calley webhook sync (`syncCalleyFromWebhook`) silently dropped any call whose phone didn't match an existing lead. This dataloss path went unnoticed for weeks.
+
+**Trigger:** Today's `firebaseLoadAll` merge corruption wiped 401 leads from cloud. Calley calls kept landing in `/calley_webhook_logs` for those (now-missing) leads, and the sync's `if(!lead){ skipped++; return; }` branch threw all 13 calls on the floor with no error and no UI feedback. The user noticed "calls not syncing" — that's what surfaced this.
+
+**Fix:** When a webhook has no phone match, the sync now builds a stub lead from the webhook payload:
+- `name` ← `parsedBody.Name`
+- `phone` ← `parsedBody.Mobile` (last 10 digits)
+- `interest` ← first segment of `parsedBody.Note` (e.g., "Life Insurance | Salesforce" → "Life Insurance")
+- `source` ← second segment, normalized ("Salesforce" → "Salesforce Campaign")
+- `stage` ← derived from outcome (Connected→connected, Lost→lost, Bad #→lost+Bad Number, Left VM→attempting, etc.)
+- `id` ← `max(lead.id)+1`, incremented per auto-create within a single sync run
+- `callLog` ← single entry with `calleyId` for dedupe on future syncs
+- `calleyPushed: true` (so the auto-push pipeline doesn't try to push them back to Calley)
+
+**Junk filter:** entries where `mobile=="0000000000"` or `name=="Test Call"` are skipped — Calley's own test traffic doesn't seed garbage leads.
+
+**UI change:** sync completion toast now shows separate counts:
+- `✅ Calley webhook sync: N new calls imported`
+- `🆕 N new leads auto-created from orphan webhooks: Alice, Bob, …`
+- (plus the existing stage-move list)
+
+**Backfill** (done before this build shipped):
+- Scanned all 288 webhook entries for orphans
+- Found 9 orphan webhooks across 8 unique phones
+- Created 5 new leads (Melody Balfour, Penny Hart, Lindsay Bethel, Orlando Espinosa, Shenika Kemp)
+- Appended 2 calls to existing name-matched leads with different phones (Mayra Molina id=411, Hensen Fernandez id=229)
+- Skipped 1 junk entry ("Test Call", phone 0000000000)
+- Total leads: 524 → 529
+
+**Still open:** The underlying `firebaseLoadAll` merge bug is the root cause of *both* of today's incidents (the 401-lead wipe AND the orphan webhooks). This release prevents the *symptom* (lost call data) but the merge bug should still be root-fixed.
 
 ---
 

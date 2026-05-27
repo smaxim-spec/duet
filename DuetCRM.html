@@ -313,9 +313,18 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.19.2';
+var APP_VERSION = 'v1.19.3';
 var APP_BUILD_DATE = '2026-05-27';
 var CHANGELOG = [
+ {ver:'v1.19.3', date:'2026-05-27', notes:[
+  'FIX: Calley webhook sync now AUTO-CREATES a stub lead when no matching phone is found. Prior behavior silently dropped the call.',
+  'Root cause of today\'s second incident: after the firebaseLoadAll merge bug wiped 401 leads, 13 Calley calls landed in /calley_webhook_logs for phones that no longer existed in /leads/data. The sync\'s "if(!lead) skipped++; return;" branch dropped them all on the floor — no error, no UI feedback.',
+  'New behavior: when a webhook has no phone match, build a stub lead with name, phone, interest (from webhook Note), source (Salesforce Campaign / etc.), initial stage from outcome (Connected → connected, Lost → lost, Bad # → lost+Bad Number, Left VM → attempting). Lead is marked calleyPushed:true so it doesn\'t get re-pushed to Calley.',
+  'Junk filter: skips webhook entries with mobile="0000000000" or name="Test Call" (Calley\'s own test traffic) so auto-create doesn\'t seed garbage.',
+  'Sync toast now shows "🆕 N new leads auto-created" with names, separate from the imported-calls count.',
+  'Backfill: 13 orphan webhooks (across the entire log history) were reconciled before this build shipped — 5 new leads + 2 appended to name-matched existing leads (Mayra Molina id=411, Hensen Fernandez id=229 had multiple phones).',
+  'Still open: the underlying firebaseLoadAll merge bug that caused both data-loss events today.'
+ ]},
  {ver:'v1.19.2', date:'2026-05-27', notes:[
   'NEW: 🔍 Lead Audit — diagnostic + recovery bookmarklet for post-incident triage.',
   'Triggered by the data-loss event today (May 27): a stale Laptop localStorage clobbered Firebase with 115 leads, dropping 401. Restored from May 22 backup via smart merge. This new tool helps prevent a similar dataloss for leads added between backups (like Tony Sawyer, added May 26).',
@@ -2129,7 +2138,9 @@ function syncCalleyFromWebhook(silent){
   .then(function(logs){
    if(!logs){ if(!silent) showToast('No webhook log entries found', 3000); return; }
    var keys = Object.keys(logs);
-   var imported = 0, skipped = 0, stageMoves = [];
+   var imported = 0, skipped = 0, autoCreated = 0, autoCreatedNames = [], stageMoves = [];
+   // v1.19.3: track next free lead.id for auto-create
+   var nextLeadId = leads.reduce(function(m, l){ return Math.max(m, (l && l.id) || 0); }, 0) + 1;
    keys.forEach(function(fbKey){
     var e = logs[fbKey];
     if(!e) return;
@@ -2137,19 +2148,20 @@ function syncCalleyFromWebhook(silent){
     var mobile = ((pb.Mobile||'')+'').replace(/\D/g,'');
     if(mobile.length > 10) mobile = mobile.slice(-10);
     if(!mobile) return;
+    // v1.19.3: skip obvious junk (test calls) so auto-create doesn't seed garbage
+    var rawName = (pb.Name||'').trim();
+    if(mobile === '0000000000' || rawName.toLowerCase() === 'test call' || !rawName){ skipped++; return; }
     var lead = leads.find(function(l){
      var p = ((l.phone||'')+'').replace(/\D/g,'');
      if(p.length > 10) p = p.slice(-10);
      return p === mobile;
     });
-    if(!lead){ skipped++; return; }
-    // Dedup — skip if this Firebase key already in the lead's callLog
-    if((lead.callLog||[]).some(function(c){ return c && c.calleyId === fbKey; })){ skipped++; return; }
     var feedback = pb['Feed Back'] || 'No Answer';
     var outcome = CALLEY_DISPOSITION_MAP[feedback] || 'No Answer';
     var dateOfCall = pb['Date Of Call'] || '';
     var duration = pb['Call Duration'] || '0:00';
     var callNote = pb['Call Note'] || '';
+    var noteField = pb['Note'] || '';
     // Parse Calley date "2026-05-13 12:08:01" → ISO
     var isoDate;
     try {
@@ -2158,6 +2170,52 @@ function syncCalleyFromWebhook(silent){
       isoDate = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2], +parts[3], +parts[4], +parts[5])).toISOString();
      } else { isoDate = new Date().toISOString(); }
     } catch(e){ isoDate = new Date().toISOString(); }
+    // === v1.19.3: AUTO-CREATE stub lead when phone has no match ===
+    // Prior behavior dropped the webhook silently. Today (2026-05-27) we lost 13 calls
+    // this way after the firebaseLoadAll merge bug wiped post-may22 leads. Now we
+    // reconstruct a minimal lead from the webhook payload so the call is never lost.
+    if(!lead){
+     var noteParts = noteField.split('|').map(function(s){return s.trim();});
+     var newInterest = noteParts[0] || 'Life Insurance';
+     var newSource = noteParts[1] || 'Salesforce Campaign';
+     if(newSource.toLowerCase() === 'salesforce') newSource = 'Salesforce Campaign';
+     var initStage = 'attempting', initLostReason = '';
+     if(outcome === 'Connected') initStage = 'connected';
+     else if(outcome === 'Discovery') initStage = 'discovery';
+     else if(outcome === 'Appt Set') initStage = 'meeting_set';
+     else if(outcome === 'Lost'){ initStage = 'lost'; initLostReason = 'Not Interested'; }
+     else if(outcome === 'Bad #'){ initStage = 'lost'; initLostReason = 'Bad Number'; }
+     else if(outcome === 'Nurturing') initStage = 'incubator';
+     else if(outcome === 'Quoted') initStage = 'quoted';
+     lead = {
+      id: nextLeadId++,
+      name: rawName,
+      phone: mobile,
+      email: '',
+      interest: newInterest,
+      source: newSource,
+      agent: '',
+      age: '',
+      notes: 'Auto-created v1.19.3 from Calley webhook — no prior lead record',
+      stage: initStage,
+      lostReason: initLostReason,
+      created: isoDate,
+      stageEnteredDate: isoDate,
+      callLog: [],
+      calleyPushed: true,
+      calleyPushedDate: isoDate,
+      contactSynced: false,
+      meetingDate: '',
+      meetingTime: '',
+      meetingType: '',
+      estPremium: ''
+     };
+     leads.push(lead);
+     autoCreated++;
+     autoCreatedNames.push(rawName);
+    }
+    // Dedup — skip if this Firebase key already in the lead's callLog
+    if((lead.callLog||[]).some(function(c){ return c && c.calleyId === fbKey; })){ skipped++; return; }
     if(!lead.callLog) lead.callLog = [];
     lead.callLog.push({
      date: isoDate,
@@ -2191,17 +2249,20 @@ function syncCalleyFromWebhook(silent){
      stageMoves.push(lead.name+': '+CRM_STAGE_LABELS[prevStage]+' → '+CRM_STAGE_LABELS[lead.stage]);
     }
    });
-   if(imported > 0){
+   if(imported > 0 || autoCreated > 0){
     saveLeads();
     localStorage.setItem('calley_last_sync', new Date().toISOString());
     var msg = '✅ Calley webhook sync: '+imported+' new call'+(imported===1?'':'s')+' imported';
+    if(autoCreated > 0){
+     msg += '<br><span style="font-size:11px;color:#ff6b35">🆕 '+autoCreated+' new lead'+(autoCreated===1?'':'s')+' auto-created from orphan webhook'+(autoCreated===1?'':'s')+': '+autoCreatedNames.slice(0,5).join(', ')+(autoCreatedNames.length>5?' (+'+(autoCreatedNames.length-5)+')':'')+'</span>';
+    }
     if(stageMoves.length > 0) msg += '<br><span style="font-size:11px">'+stageMoves.slice(0,5).join('<br>')+(stageMoves.length>5?'<br>… and '+(stageMoves.length-5)+' more':'')+'</span>';
     if(!silent) showToast(msg, 8000);
     try { renderCRM(); } catch(e){}
    } else if(!silent){
     showToast('✅ Calley up to date — no new calls', 3000);
    }
-   return {imported: imported, skipped: skipped};
+   return {imported: imported, skipped: skipped, autoCreated: autoCreated};
   })
   .catch(function(err){
    console.error('Calley webhook sync failed:', err);
