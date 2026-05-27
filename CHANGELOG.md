@@ -2,9 +2,36 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.19.1` · Updated 2026-05-27
+> **Current version:** `v1.19.2` · Updated 2026-05-27
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.19.2 — 2026-05-27 — 🔍 Lead Audit (post-incident recovery tool)
+
+Diagnostic + recovery bookmarklet, triggered by the data-loss event earlier today: a stale Laptop localStorage clobbered Firebase with 115 leads, dropping 401. Restored via smart merge from the May 22 backup (515 → 516 final). Tony Sawyer (added May 26, after the most recent backup) was not recoverable from Firebase — this tool exists to help recover similar between-backup leads from device localStorage.
+
+**Adds 🔍 Lead Audit button** next to 🗑️ Clean Calley in My CRM. Modal exposes:
+- **Run audit now** — runs immediately in current page
+- **📋 Copy script** — paste into any CRM page's console
+- **🔖 Copy bookmarklet / draggable bookmarklet** — drag to bookmarks bar, iCloud-sync to phone, click while on the CRM in mobile Safari
+
+**Bookmarklet behavior** (read-only, no side effects):
+- Reads `salestracker_leads` localStorage
+- Prompts for a search term (default `tony sawyer`)
+- Shows local lead count + first 10 matching names/phones
+- If matches found: copies the full lead JSON to clipboard with paste-instructions for laptop console
+
+**Recovery flow** (instructions baked into modal):
+1. Run bookmarklet on device with the lost lead
+2. Copy matching JSON to clipboard
+3. Get clipboard to laptop (AirDrop / Notes)
+4. Paste a dedupe-by-phone push into laptop CRM console; `saveLeads()` to commit to cloud
+
+**Why read-only:** running `forceCloudSync` on the device that has the missing lead would overwrite local with cloud — destroying the lead before we can recover it. Modal warns against this.
+
+**Open issue:** the underlying `firebaseLoadAll` merge bug still isn't root-fixed. Today's incident is the second time it's caused visible data loss. Should be prioritized for a future session.
 
 ---
 
