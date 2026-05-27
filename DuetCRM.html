@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.19.0';
-var APP_BUILD_DATE = '2026-05-22';
+var APP_VERSION = 'v1.19.1';
+var APP_BUILD_DATE = '2026-05-27';
 var CHANGELOG = [
+ {ver:'v1.19.1', date:'2026-05-27', notes:[
+  'NEW: 🗑️ Clean Calley — one-click cleanup of dispositioned rows (Lost / Bad Number / Wrong Number) on Calley\'s web panel.',
+  'Adds a 🗑️ Clean Calley button next to Push to Calley in My CRM. Opens a modal with: an "Open Calley list" link, a 📋 Copy script button, a 🔖 Copy bookmarklet button, and a draggable bookmarklet link.',
+  'How it works: DuetCRM never talks to Calley directly here. The script runs in your logged-in Calley tab and posts to Calley\'s own per-row delete endpoint (Handler/delListData.ashx) with session cookies, one row at a time (~300ms apart). Filter regex: /(Lost|Bad Number|Wrong Number)/i — confirms count before deleting, reloads the list when done.',
+  'Workflow: filter Calley to Lost/Bad/Wrong → click bookmarklet OR paste copied script in console → confirm → cleanup runs.'
+ ]},
  {ver:'v1.19.0', date:'2026-05-22', notes:[
   'Rule change: ANY first dial now promotes New → Attempting (was: required 3+ No Answer/Left VM). Goal: keep the New bucket a "fresh leads only" priority queue. Outcomes that promote elsewhere (Connected/Discovery/Appt Set/Won/Lost/Bad #) still take precedence.',
   'Rule change: Auto-lost threshold lowered from 10 attempts → 5 attempts (still gated on "no Connected/Discovery/Appt Set ever"; reason stays "No Contact After Max Attempts").',
@@ -1788,6 +1794,161 @@ function calleyResetAndPush(){
  // Re-render to pick up new counts, then auto-push
  renderCRM();
  setTimeout(function(){ calleyPushFiltered(); }, 1000);
+}
+
+// === Clean Calley — v1.19.1 ===
+// Builds a console snippet + bookmarklet that, when pasted into the Calley
+// web panel (app.getcalley.com), deletes every row whose visible text
+// matches Lost / Bad Number / Wrong Number. Deletion goes through Calley's
+// own per-row endpoint (Handler/delListData.ashx) with the user's session
+// cookies. We never touch Calley directly from DuetCRM.
+function _calleyCleanupFn(){
+ var t = (function(){
+  var tables = document.querySelectorAll('table');
+  for(var i = 0; i < tables.length; i++){
+   if(tables[i].querySelector('tbody tr td a[onclick*="isConfirmDelete"]')) return tables[i];
+  }
+  return null;
+ })();
+ if(!t){ alert('Call list table not found. Make sure you are on the Calley list page.'); return; }
+ var targets = [];
+ var rows = t.querySelectorAll('tbody tr');
+ var FILTER_REGEX = /(Lost|Bad Number|Wrong Number)/i;
+ [].forEach.call(rows, function(r){
+  if(!FILTER_REGEX.test(r.textContent)) return;
+  var trash = r.querySelector('a[onclick*="isConfirmDelete"]');
+  if(!trash) return;
+  var oc = trash.getAttribute('onclick') || '';
+  var m = oc.match(/isConfirmDelete\(['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\)/);
+  if(m){
+   var firstTd = r.querySelector('td');
+   var name = firstTd ? firstTd.textContent.trim().substring(0,30) : '?';
+   targets.push({id: m[1], lst: m[2], name: name});
+  }
+ });
+ if(targets.length === 0){ alert('No Lost / Bad Number / Wrong Number rows visible on this page.'); return; }
+ if(!confirm('Delete ' + targets.length + ' dispositioned rows from Calley?\n\n(Lost / Bad Number / Wrong Number)')) return;
+ var done = 0, failed = 0;
+ function deleteOne(idx){
+  if(idx >= targets.length){
+   console.log('Calley cleanup done. Deleted ' + done + ', Failed ' + failed);
+   alert('Calley cleanup done. Deleted ' + done + (failed ? (', Failed ' + failed) : '') + '.\n\nReloading list…');
+   setTimeout(function(){ window.location.reload(); }, 800);
+   return;
+  }
+  var tgt = targets[idx];
+  fetch('Handler/delListData.ashx?id=' + encodeURIComponent(tgt.id) + '&lst=' + encodeURIComponent(tgt.lst), {
+   method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}
+  }).then(function(r){
+   if(r.ok){ done++; console.log(done + '/' + targets.length + ' ' + tgt.name); }
+   else { failed++; console.log('HTTP ' + r.status + ' ' + tgt.name); }
+   setTimeout(function(){ deleteOne(idx+1); }, 300);
+  }).catch(function(e){
+   failed++; console.log(tgt.name + ': ' + e.message);
+   setTimeout(function(){ deleteOne(idx+1); }, 300);
+  });
+ }
+ deleteOne(0);
+}
+
+function getCalleyCleanupScript(){
+ return '(' + _calleyCleanupFn.toString() + ')();';
+}
+
+function getCalleyCleanupBookmarklet(){
+ return 'javascript:' + encodeURIComponent(getCalleyCleanupScript()) + 'void(0);';
+}
+
+function showCleanCalleyModal(){
+ var old = document.getElementById('cleanCalleyModal');
+ if(old) old.remove();
+
+ var overlay = document.createElement('div');
+ overlay.id = 'cleanCalleyModal';
+ overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+ overlay.onclick = function(e){ if(e.target === overlay) overlay.remove(); };
+
+ var bookmarklet = getCalleyCleanupBookmarklet();
+
+ var m = '<div style="background:var(--bg);border-radius:12px;padding:20px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3);color:var(--fg)">';
+ m += '<h3 style="margin:0 0 4px 0;color:#ff6b35">🗑️ Clean Calley</h3>';
+ m += '<p style="margin:0 0 14px 0;font-size:12px;color:var(--muted);line-height:1.5">Removes dispositioned contacts (<b>Lost</b>, <b>Bad Number</b>, <b>Wrong Number</b>) from your active Calley list. Cleanup runs in Calley\'s web panel using your logged-in session — DuetCRM never talks to Calley directly here.</p>';
+
+ // Open Calley link
+ m += '<div style="margin-bottom:14px">';
+ m += '<a href="https://app.getcalley.com/Upload.aspx" target="_blank" rel="noopener" style="display:inline-block;padding:8px 14px;border-radius:6px;background:#ff6b35;color:#fff;text-decoration:none;font-size:13px;font-weight:600">↗ Open Calley list</a>';
+ m += '<span style="font-size:11px;color:var(--muted);margin-left:10px">opens in a new tab</span>';
+ m += '</div>';
+
+ // Action buttons
+ m += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">';
+ m += '<button onclick="copyCalleyCleanupScript()" style="padding:8px 14px;border-radius:6px;border:none;background:var(--pri);color:#fff;cursor:pointer;font-size:13px;font-weight:600">📋 Copy script</button>';
+ m += '<button onclick="copyCalleyCleanupBookmarklet()" style="padding:8px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px;font-weight:600">🔖 Copy bookmarklet</button>';
+ m += '</div>';
+
+ // Drag-to-bookmarks helper
+ m += '<div style="margin-bottom:14px;padding:10px 12px;background:var(--ptint);border-radius:8px;border:1px dashed var(--border)">';
+ m += '<div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px">Or drag this to your bookmarks bar:</div>';
+ var dragHref = bookmarklet.replace(/"/g, '&quot;');
+ m += '<a href="' + dragHref + '" draggable="true" onclick="event.preventDefault();showToast(\'Drag this link to your bookmarks bar — don\\\'t click\',4000)" style="display:inline-block;padding:6px 12px;border-radius:6px;background:#fff3e0;color:#ff6b35;border:1px solid #ff6b35;text-decoration:none;font-size:12px;font-weight:700;cursor:grab">🗑️ Clean Calley</a>';
+ m += '<div style="font-size:10px;color:var(--muted);margin-top:6px">Once it\'s in your bookmarks, just click it while on the Calley list page.</div>';
+ m += '</div>';
+
+ // Steps
+ m += '<div style="margin-bottom:14px;font-size:12px;line-height:1.6">';
+ m += '<div style="font-weight:700;margin-bottom:6px">How to run it</div>';
+ m += '<ol style="margin:0;padding-left:20px;color:var(--fg)">';
+ m += '<li>Open your Calley list (button above).</li>';
+ m += '<li>Filter the list to show <b>Lost</b> / <b>Bad Number</b> / <b>Wrong Number</b> dispositions (so only rows you want to remove are visible).</li>';
+ m += '<li>Click your <b>🗑️ Clean Calley</b> bookmarklet — OR paste the copied script into the browser console (⌥⌘J on Mac).</li>';
+ m += '<li>Confirm the count when prompted. The page reloads when finished.</li>';
+ m += '</ol>';
+ m += '</div>';
+
+ // Close
+ m += '<div style="display:flex;justify-content:flex-end">';
+ m += '<button onclick="document.getElementById(\'cleanCalleyModal\').remove()" style="padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px">Close</button>';
+ m += '</div>';
+
+ m += '</div>';
+ overlay.innerHTML = m;
+ document.body.appendChild(overlay);
+}
+
+function copyCalleyCleanupScript(){
+ var text = getCalleyCleanupScript();
+ _copyTextWithFallback(text, 'Script copied — paste into Calley console while on the list page');
+}
+
+function copyCalleyCleanupBookmarklet(){
+ var text = getCalleyCleanupBookmarklet();
+ _copyTextWithFallback(text, 'Bookmarklet copied — create a new bookmark and paste this as the URL');
+}
+
+function _copyTextWithFallback(text, successMsg){
+ function fallback(){
+  try {
+   var ta = document.createElement('textarea');
+   ta.value = text;
+   ta.style.position = 'fixed';
+   ta.style.opacity = '0';
+   document.body.appendChild(ta);
+   ta.focus();
+   ta.select();
+   document.execCommand('copy');
+   document.body.removeChild(ta);
+   showToast(successMsg, 4000);
+  } catch(e){
+   showToast('Copy failed — select the text manually', 5000);
+  }
+ }
+ if(navigator.clipboard && navigator.clipboard.writeText){
+  navigator.clipboard.writeText(text).then(function(){
+   showToast(successMsg, 4000);
+  }).catch(fallback);
+ } else {
+  fallback();
+ }
 }
 
 function calleyExportCSV(){
@@ -8050,6 +8211,7 @@ function renderCallQueue(){
   h += '<span id="calleyFilterLabel" style="display:none">'+filterLabel+'</span>';
   if(calleyPushedCount > 0) h += '<span style="font-size:9px;color:#ff6b35">📱 '+calleyPushedCount+' in Calley</span>';
   h += '<button class="btn btn-sm" onclick="syncCalleyFromWebhook()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Pull Calley call results from the webhook log (no API token needed)">🔄 Sync Calley</button>';
+  h += '<button class="btn btn-sm" onclick="showCleanCalleyModal()" style="background:#8e44ad;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Remove Lost / Bad Number / Wrong Number rows from the Calley list">🗑️ Clean Calley</button>';
   var lastSync = localStorage.getItem('calley_last_sync');
   if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
   h += '</div>';

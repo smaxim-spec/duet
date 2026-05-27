@@ -2,9 +2,43 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.18.0` · Updated 2026-05-17
+> **Current version:** `v1.19.1` · Updated 2026-05-27
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
+
+---
+
+## v1.19.1 — 2026-05-27 — 🗑️ Clean Calley integration
+
+One-click cleanup of dispositioned rows in the Calley web panel (Lost / Bad Number / Wrong Number). Adds a **🗑️ Clean Calley** button next to Push to Calley in My CRM, opening a modal with three ways to run the cleanup.
+
+**Modal contents:**
+- **↗ Open Calley list** — opens `app.getcalley.com/Upload.aspx` in a new tab
+- **📋 Copy script** — copies the cleanup script to clipboard; paste into the Calley console (⌥⌘J)
+- **🔖 Copy bookmarklet** — copies the same script as a `javascript:` URL for manual bookmark creation
+- **Draggable bookmarklet link** — drag the `🗑️ Clean Calley` chip onto your bookmarks bar; click it later while on the Calley list page
+
+**How it works:**
+- DuetCRM never calls Calley directly. The script runs inside Calley's tab, using the user's logged-in session cookies.
+- Hits Calley's own per-row delete endpoint (`Handler/delListData.ashx?id=...&lst=...`), one row at a time, spaced ~300ms apart.
+- Filter regex: `/(Lost|Bad Number|Wrong Number)/i` — matches visible row text against the Calley list view.
+- Confirms count (`Delete N dispositioned rows?`) before deleting; reloads the list when done.
+
+**Why a bookmarklet instead of a direct call:** Calley auth is session-cookie based and not shareable across origins — DuetCRM can't post to `app.getcalley.com` from `smaxim-spec.github.io`. The bookmarklet runs in Calley's origin where the cookies live.
+
+---
+
+## v1.19.0 — 2026-05-22 — Stage-rule changes: 1-dial → Attempting, auto-lost at 5 attempts
+
+Rule changes to keep the "New" bucket strictly fresh leads:
+
+- **New → Attempting**: ANY first dial now promotes (was: required 3+ No Answer/Left VM). Outcomes that promote elsewhere (Connected/Discovery/Appt Set/Won/Lost/Bad #) still take precedence.
+- **Auto-lost threshold**: lowered from 10 attempts → 5 attempts (still gated on "no Connected/Discovery/Appt Set ever"; reason stays `No Contact After Max Attempts`).
+- Applied to all 3 stage-rule sites in code: main `logCall`, `syncCalleyFromWebhook`, and legacy `calleySyncResults`.
+
+**Data rebase:** 131 existing leads sitting in `stage=new` with 1+ callLog entries were bumped to `stage=attempting`. Their `stageEnteredDate` was set to the date of their last callLog entry (not today), so the weekly report does NOT show a flood of fake "stage moved this week" events.
+
+Backup pre-rebase: `/backups/pre_stage_rules_20260522T100423`. Updated `Stage_Flow_Mindmap.md` to reflect the new thresholds.
 
 ---
 
