@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.19.3';
-var APP_BUILD_DATE = '2026-05-27';
+var APP_VERSION = 'v1.19.4';
+var APP_BUILD_DATE = '2026-05-31';
 var CHANGELOG = [
+ {ver:'v1.19.4', date:'2026-05-31', notes:[
+  'NEW: Callback badge in lead header — shows callback date as a color-coded pill next to the stage badge (blue=future, amber=today, red=overdue). Tap to clear (with confirm).',
+  'NEW: Call Queue cards now show callback date pill on every lead with a callback (was only showing "Callback" tag if due today)',
+  'No more scrolling down to the Schedule Callback section just to see when next callback is set'
+ ]},
  {ver:'v1.19.3', date:'2026-05-27', notes:[
   'FIX: Calley webhook sync now AUTO-CREATES a stub lead when no matching phone is found. Prior behavior silently dropped the call.',
   'Root cause of today\'s second incident: after the firebaseLoadAll merge bug wiped 401 leads, 13 Calley calls landed in /calley_webhook_logs for phones that no longer existed in /leads/data. The sync\'s "if(!lead) skipped++; return;" branch dropped them all on the floor — no error, no UI feedback.',
@@ -8471,7 +8476,16 @@ function renderCallQueue(){
    var openObj = (lead.objections||[]).filter(function(o){return o.status==='Open'}).length;
    if(openObj > 0) h += '<span title="'+openObj+' open objection'+(openObj>1?'s':'')+'" style="background:#e74c3c;color:#fff;font-size:8px;padding:1px 5px;border-radius:4px;font-weight:600">⚠️'+openObj+'</span>';
    h += '<span class="badge" style="background:'+borderColor+';color:#fff;font-size:8px;padding:1px 5px;margin-left:auto">'+CRM_STAGE_LABELS[lead.stage]+'</span>';
-   if(lead.callbackDate && isCallbackDueToday(lead)) h += '<span class="badge" style="background:#e74c3c;color:#fff;font-size:8px;padding:1px 5px">📅 Callback</span>';
+   // Callback badge in queue card — color-coded; shows the date so user knows when callback is.
+   if(lead.callbackDate){
+    var _tYMD = toYMD(new Date());
+    var _qCbColor = lead.callbackDate < _tYMD ? '#e74c3c' : (lead.callbackDate === _tYMD ? '#f39c12' : '#3498db');
+    var _qCbLabel = lead.callbackDate === _tYMD ? '📅 TODAY' : '📅 ' + (function(){
+     var _d = new Date(lead.callbackDate + 'T00:00:00');
+     return _d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    })();
+    h += '<span class="badge" title="Callback: '+lead.callbackDate+'" style="background:'+_qCbColor+';color:#fff;font-size:8px;padding:1px 5px">'+_qCbLabel+'</span>';
+   }
    h += '</div></div>';
   });
   h += '</div>';
@@ -9163,6 +9177,26 @@ function renderLeadDetail(){
   var psLbl = POLICY_STATUS_LABELS[lead.policyStatus] || lead.policyStatus;
   var psCol = POLICY_STATUS_COLORS[lead.policyStatus] || '#7f8c8d';
   h += '<span class="badge" title="Policy status (DuetBooks)" style="background:'+psCol+';color:#fff;font-size:10px;padding:2px 8px">📋 '+psLbl+'</span>';
+ }
+ // Callback badge — tap to clear (with confirm). Color-coded by date proximity.
+ // Saves scrolling down to find the existing callback section.
+ if(lead.callbackDate){
+  var _todayYMD = toYMD(new Date());
+  var _cbColor, _cbLabel;
+  if(lead.callbackDate < _todayYMD){
+   _cbColor = '#e74c3c'; // red — overdue
+   _cbLabel = '⚠ Callback overdue: ' + lead.callbackDate;
+  } else if(lead.callbackDate === _todayYMD){
+   _cbColor = '#f39c12'; // amber — due today
+   _cbLabel = '🔁 Callback TODAY';
+  } else {
+   _cbColor = '#3498db'; // blue — future
+   var _cbD = new Date(lead.callbackDate + 'T00:00:00');
+   var _cbShort = _cbD.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+   _cbLabel = '🔁 Callback: ' + _cbShort;
+  }
+  var _cbConfirmMsg = 'Clear callback for ' + (lead.name||'this lead') + ' on ' + lead.callbackDate + '?';
+  h += '<span class="badge" title="Tap to clear callback" onclick="if(confirm('+JSON.stringify(_cbConfirmMsg)+')) clearCallback('+lead.id+')" style="background:'+_cbColor+';color:#fff;font-size:10px;padding:2px 8px;cursor:pointer">'+_cbLabel+'</span>';
  }
  if(lead.stage === 'incubator'){
   h += '<select onchange="setNurturingTemp('+lead.id+',this.value)" style="width:70px;font-size:10px">';

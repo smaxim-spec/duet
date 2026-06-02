@@ -2,11 +2,25 @@
 
 > Complete version history for DuetCRM. Mirrors the in-app changelog (visible in Settings or by tapping the version footer).
 >
-> **Current version:** `v1.19.3` · Updated 2026-05-27
+> **Current version:** `v1.19.4` · Updated 2026-05-31
 > **Source file:** `~/.duet-server/DuetCRM.html`
 > **Deployed to:** `https://smaxim-spec.github.io/duet/`
 
 ---
+
+## v1.19.4 — 2026-05-31 — Callback badge in header + call queue
+
+Added a compact, color-coded callback badge to the lead detail header (next to the stage/policy badges) and to call queue cards. No more scrolling down to the Schedule Callback section just to see when next callback is set.
+
+**Lead detail header badge:**
+- 🔵 Blue if callback is in the future ("🔁 Callback: Jun 6")
+- 🟡 Amber if callback is today ("🔁 Callback TODAY")
+- 🔴 Red if overdue ("⚠ Callback overdue: 2026-06-06")
+- **Tap to clear** with a confirm dialog (no accidental clears)
+
+**Call Queue card badge:**
+- Same color coding, more compact ("📅 TODAY" or "📅 Jun 6")
+- Previously only showed a generic "Callback" tag when due today — now visible for every lead with a callback
 
 ## v1.19.3 — 2026-05-27 — Calley webhook auto-create stub leads (orphan-call fix)
 

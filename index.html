@@ -313,9 +313,36 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.19.0';
-var APP_BUILD_DATE = '2026-05-22';
+var APP_VERSION = 'v1.19.4';
+var APP_BUILD_DATE = '2026-05-31';
 var CHANGELOG = [
+ {ver:'v1.19.4', date:'2026-05-31', notes:[
+  'NEW: Callback badge in lead header — shows callback date as a color-coded pill next to the stage badge (blue=future, amber=today, red=overdue). Tap to clear (with confirm).',
+  'NEW: Call Queue cards now show callback date pill on every lead with a callback (was only showing "Callback" tag if due today)',
+  'No more scrolling down to the Schedule Callback section just to see when next callback is set'
+ ]},
+ {ver:'v1.19.3', date:'2026-05-27', notes:[
+  'FIX: Calley webhook sync now AUTO-CREATES a stub lead when no matching phone is found. Prior behavior silently dropped the call.',
+  'Root cause of today\'s second incident: after the firebaseLoadAll merge bug wiped 401 leads, 13 Calley calls landed in /calley_webhook_logs for phones that no longer existed in /leads/data. The sync\'s "if(!lead) skipped++; return;" branch dropped them all on the floor — no error, no UI feedback.',
+  'New behavior: when a webhook has no phone match, build a stub lead with name, phone, interest (from webhook Note), source (Salesforce Campaign / etc.), initial stage from outcome (Connected → connected, Lost → lost, Bad # → lost+Bad Number, Left VM → attempting). Lead is marked calleyPushed:true so it doesn\'t get re-pushed to Calley.',
+  'Junk filter: skips webhook entries with mobile="0000000000" or name="Test Call" (Calley\'s own test traffic) so auto-create doesn\'t seed garbage.',
+  'Sync toast now shows "🆕 N new leads auto-created" with names, separate from the imported-calls count.',
+  'Backfill: 13 orphan webhooks (across the entire log history) were reconciled before this build shipped — 5 new leads + 2 appended to name-matched existing leads (Mayra Molina id=411, Hensen Fernandez id=229 had multiple phones).',
+  'Still open: the underlying firebaseLoadAll merge bug that caused both data-loss events today.'
+ ]},
+ {ver:'v1.19.2', date:'2026-05-27', notes:[
+  'NEW: 🔍 Lead Audit — diagnostic + recovery bookmarklet for post-incident triage.',
+  'Triggered by the data-loss event today (May 27): a stale Laptop localStorage clobbered Firebase with 115 leads, dropping 401. Restored from May 22 backup via smart merge. This new tool helps prevent a similar dataloss for leads added between backups (like Tony Sawyer, added May 26).',
+  'Adds 🔍 Lead Audit button next to 🗑️ Clean Calley in My CRM. Opens a modal with: Run audit now, 📋 Copy script, 🔖 Copy bookmarklet, draggable bookmarklet link.',
+  'Bookmarklet behavior: reads salestracker_leads localStorage, prompts for a search term (default "tony sawyer"), shows count + first 10 matches, optionally copies matching lead JSON to clipboard for manual recovery on laptop.',
+  'Read-only — does NOT call forceCloudSync or push to Firebase. Recovery flow uses copy-paste into laptop console (instructions in modal).'
+ ]},
+ {ver:'v1.19.1', date:'2026-05-27', notes:[
+  'NEW: 🗑️ Clean Calley — one-click cleanup of dispositioned rows (Lost / Bad Number / Wrong Number) on Calley\'s web panel.',
+  'Adds a 🗑️ Clean Calley button next to Push to Calley in My CRM. Opens a modal with: an "Open Calley list" link, a 📋 Copy script button, a 🔖 Copy bookmarklet button, and a draggable bookmarklet link.',
+  'How it works: DuetCRM never talks to Calley directly here. The script runs in your logged-in Calley tab and posts to Calley\'s own per-row delete endpoint (Handler/delListData.ashx) with session cookies, one row at a time (~300ms apart). Filter regex: /(Lost|Bad Number|Wrong Number)/i — confirms count before deleting, reloads the list when done.',
+  'Workflow: filter Calley to Lost/Bad/Wrong → click bookmarklet OR paste copied script in console → confirm → cleanup runs.'
+ ]},
  {ver:'v1.19.0', date:'2026-05-22', notes:[
   'Rule change: ANY first dial now promotes New → Attempting (was: required 3+ No Answer/Left VM). Goal: keep the New bucket a "fresh leads only" priority queue. Outcomes that promote elsewhere (Connected/Discovery/Appt Set/Won/Lost/Bad #) still take precedence.',
   'Rule change: Auto-lost threshold lowered from 10 attempts → 5 attempts (still gated on "no Connected/Discovery/Appt Set ever"; reason stays "No Contact After Max Attempts").',
@@ -1790,6 +1817,272 @@ function calleyResetAndPush(){
  setTimeout(function(){ calleyPushFiltered(); }, 1000);
 }
 
+// === Clean Calley — v1.19.1 ===
+// Builds a console snippet + bookmarklet that, when pasted into the Calley
+// web panel (app.getcalley.com), deletes every row whose visible text
+// matches Lost / Bad Number / Wrong Number. Deletion goes through Calley's
+// own per-row endpoint (Handler/delListData.ashx) with the user's session
+// cookies. We never touch Calley directly from DuetCRM.
+function _calleyCleanupFn(){
+ var t = (function(){
+  var tables = document.querySelectorAll('table');
+  for(var i = 0; i < tables.length; i++){
+   if(tables[i].querySelector('tbody tr td a[onclick*="isConfirmDelete"]')) return tables[i];
+  }
+  return null;
+ })();
+ if(!t){ alert('Call list table not found. Make sure you are on the Calley list page.'); return; }
+ var targets = [];
+ var rows = t.querySelectorAll('tbody tr');
+ var FILTER_REGEX = /(Lost|Bad Number|Wrong Number)/i;
+ [].forEach.call(rows, function(r){
+  if(!FILTER_REGEX.test(r.textContent)) return;
+  var trash = r.querySelector('a[onclick*="isConfirmDelete"]');
+  if(!trash) return;
+  var oc = trash.getAttribute('onclick') || '';
+  var m = oc.match(/isConfirmDelete\(['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\)/);
+  if(m){
+   var firstTd = r.querySelector('td');
+   var name = firstTd ? firstTd.textContent.trim().substring(0,30) : '?';
+   targets.push({id: m[1], lst: m[2], name: name});
+  }
+ });
+ if(targets.length === 0){ alert('No Lost / Bad Number / Wrong Number rows visible on this page.'); return; }
+ if(!confirm('Delete ' + targets.length + ' dispositioned rows from Calley?\n\n(Lost / Bad Number / Wrong Number)')) return;
+ var done = 0, failed = 0;
+ function deleteOne(idx){
+  if(idx >= targets.length){
+   console.log('Calley cleanup done. Deleted ' + done + ', Failed ' + failed);
+   alert('Calley cleanup done. Deleted ' + done + (failed ? (', Failed ' + failed) : '') + '.\n\nReloading list…');
+   setTimeout(function(){ window.location.reload(); }, 800);
+   return;
+  }
+  var tgt = targets[idx];
+  fetch('Handler/delListData.ashx?id=' + encodeURIComponent(tgt.id) + '&lst=' + encodeURIComponent(tgt.lst), {
+   method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}
+  }).then(function(r){
+   if(r.ok){ done++; console.log(done + '/' + targets.length + ' ' + tgt.name); }
+   else { failed++; console.log('HTTP ' + r.status + ' ' + tgt.name); }
+   setTimeout(function(){ deleteOne(idx+1); }, 300);
+  }).catch(function(e){
+   failed++; console.log(tgt.name + ': ' + e.message);
+   setTimeout(function(){ deleteOne(idx+1); }, 300);
+  });
+ }
+ deleteOne(0);
+}
+
+function getCalleyCleanupScript(){
+ return '(' + _calleyCleanupFn.toString() + ')();';
+}
+
+function getCalleyCleanupBookmarklet(){
+ return 'javascript:' + encodeURIComponent(getCalleyCleanupScript()) + 'void(0);';
+}
+
+function showCleanCalleyModal(){
+ var old = document.getElementById('cleanCalleyModal');
+ if(old) old.remove();
+
+ var overlay = document.createElement('div');
+ overlay.id = 'cleanCalleyModal';
+ overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+ overlay.onclick = function(e){ if(e.target === overlay) overlay.remove(); };
+
+ var bookmarklet = getCalleyCleanupBookmarklet();
+
+ var m = '<div style="background:var(--bg);border-radius:12px;padding:20px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3);color:var(--fg)">';
+ m += '<h3 style="margin:0 0 4px 0;color:#ff6b35">🗑️ Clean Calley</h3>';
+ m += '<p style="margin:0 0 14px 0;font-size:12px;color:var(--muted);line-height:1.5">Removes dispositioned contacts (<b>Lost</b>, <b>Bad Number</b>, <b>Wrong Number</b>) from your active Calley list. Cleanup runs in Calley\'s web panel using your logged-in session — DuetCRM never talks to Calley directly here.</p>';
+
+ // Open Calley link
+ m += '<div style="margin-bottom:14px">';
+ m += '<a href="https://app.getcalley.com/Upload.aspx" target="_blank" rel="noopener" style="display:inline-block;padding:8px 14px;border-radius:6px;background:#ff6b35;color:#fff;text-decoration:none;font-size:13px;font-weight:600">↗ Open Calley list</a>';
+ m += '<span style="font-size:11px;color:var(--muted);margin-left:10px">opens in a new tab</span>';
+ m += '</div>';
+
+ // Action buttons
+ m += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">';
+ m += '<button onclick="copyCalleyCleanupScript()" style="padding:8px 14px;border-radius:6px;border:none;background:var(--pri);color:#fff;cursor:pointer;font-size:13px;font-weight:600">📋 Copy script</button>';
+ m += '<button onclick="copyCalleyCleanupBookmarklet()" style="padding:8px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px;font-weight:600">🔖 Copy bookmarklet</button>';
+ m += '</div>';
+
+ // Drag-to-bookmarks helper
+ m += '<div style="margin-bottom:14px;padding:10px 12px;background:var(--ptint);border-radius:8px;border:1px dashed var(--border)">';
+ m += '<div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px">Or drag this to your bookmarks bar:</div>';
+ var dragHref = bookmarklet.replace(/"/g, '&quot;');
+ m += '<a href="' + dragHref + '" draggable="true" onclick="event.preventDefault();showToast(\'Drag this link to your bookmarks bar — don\\\'t click\',4000)" style="display:inline-block;padding:6px 12px;border-radius:6px;background:#fff3e0;color:#ff6b35;border:1px solid #ff6b35;text-decoration:none;font-size:12px;font-weight:700;cursor:grab">🗑️ Clean Calley</a>';
+ m += '<div style="font-size:10px;color:var(--muted);margin-top:6px">Once it\'s in your bookmarks, just click it while on the Calley list page.</div>';
+ m += '</div>';
+
+ // Steps
+ m += '<div style="margin-bottom:14px;font-size:12px;line-height:1.6">';
+ m += '<div style="font-weight:700;margin-bottom:6px">How to run it</div>';
+ m += '<ol style="margin:0;padding-left:20px;color:var(--fg)">';
+ m += '<li>Open your Calley list (button above).</li>';
+ m += '<li>Filter the list to show <b>Lost</b> / <b>Bad Number</b> / <b>Wrong Number</b> dispositions (so only rows you want to remove are visible).</li>';
+ m += '<li>Click your <b>🗑️ Clean Calley</b> bookmarklet — OR paste the copied script into the browser console (⌥⌘J on Mac).</li>';
+ m += '<li>Confirm the count when prompted. The page reloads when finished.</li>';
+ m += '</ol>';
+ m += '</div>';
+
+ // Close
+ m += '<div style="display:flex;justify-content:flex-end">';
+ m += '<button onclick="document.getElementById(\'cleanCalleyModal\').remove()" style="padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px">Close</button>';
+ m += '</div>';
+
+ m += '</div>';
+ overlay.innerHTML = m;
+ document.body.appendChild(overlay);
+}
+
+function copyCalleyCleanupScript(){
+ var text = getCalleyCleanupScript();
+ _copyTextWithFallback(text, 'Script copied — paste into Calley console while on the list page');
+}
+
+function copyCalleyCleanupBookmarklet(){
+ var text = getCalleyCleanupBookmarklet();
+ _copyTextWithFallback(text, 'Bookmarklet copied — create a new bookmark and paste this as the URL');
+}
+
+// === Lead Audit — v1.19.2 ===
+// Bookmarklet for diagnosing localStorage on any device (especially phone)
+// after a sync incident. Read-only: shows local lead count + filtered matches
+// + copies matching lead JSON to clipboard for manual recovery on laptop.
+// Does NOT call forceCloudSync (that would clobber localStorage with cloud).
+function _leadAuditFn(){
+ var KEY = 'salestracker_leads';
+ var L;
+ try { L = JSON.parse(localStorage.getItem(KEY) || '[]'); }
+ catch(e){ alert('Parse error: ' + e.message); return; }
+ if(!Array.isArray(L)){ alert(KEY + ' is not an array'); return; }
+ var search = prompt('Audit local leads — search for what?\n\n(Leave blank to count only)', 'tony sawyer');
+ if(search === null) return;
+ search = (search || '').trim();
+ var rx = search ? new RegExp(search.split(/\s+/).join('|'), 'i') : null;
+ var matches = rx ? L.filter(function(l){
+  var hay = [(l.name||''), (l.phone||''), (l.email||''), (l.notes||'')].join(' ');
+  return rx.test(hay);
+ }) : [];
+ var sample = matches.slice(0,10).map(function(l){
+  return '• ' + (l.name||'(no name)') + ' / ' + (l.phone||'?') + ' / id=' + (l.id||'?') + ' / stage=' + (l.stage||'?');
+ }).join('\n');
+ var dev = (navigator.userAgent.match(/iPhone|iPad|Android|Mac|Windows/) || ['unknown'])[0];
+ var msg = 'Device: ' + dev + '\nLocal leads: ' + L.length + '\nSearch: "' + search + '"\nMatches: ' + matches.length;
+ if(matches.length) msg += '\n\nFirst ' + Math.min(matches.length,10) + ':\n' + sample;
+ if(matches.length){
+  msg += '\n\nOK = copy matching lead JSON to clipboard.\nCancel = just close.';
+  if(confirm(msg)){
+   var txt = JSON.stringify(matches, null, 2);
+   if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){
+     alert('Copied ' + matches.length + ' lead(s) to clipboard.\n\nOn laptop CRM console paste this:\n\nvar t = JSON.parse(prompt("paste JSON"));\nt.forEach(function(l){ if(!leads.find(function(x){return x.phone===l.phone})) leads.push(l); });\nsaveLeads();');
+    }).catch(function(){ prompt('Copy manually:', txt); });
+   } else {
+    prompt('Copy manually:', txt);
+   }
+  }
+ } else {
+  alert(msg);
+ }
+}
+
+function getLeadAuditScript(){
+ return '(' + _leadAuditFn.toString() + ')();';
+}
+
+function getLeadAuditBookmarklet(){
+ return 'javascript:' + encodeURIComponent(getLeadAuditScript()) + 'void(0);';
+}
+
+function showLeadAuditModal(){
+ var old = document.getElementById('leadAuditModal');
+ if(old) old.remove();
+
+ var overlay = document.createElement('div');
+ overlay.id = 'leadAuditModal';
+ overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+ overlay.onclick = function(e){ if(e.target === overlay) overlay.remove(); };
+
+ var bookmarklet = getLeadAuditBookmarklet();
+
+ var m = '<div style="background:var(--bg);border-radius:12px;padding:20px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3);color:var(--fg)">';
+ m += '<h3 style="margin:0 0 4px 0;color:#2980b9">🔍 Lead Audit</h3>';
+ m += '<p style="margin:0 0 14px 0;font-size:12px;color:var(--muted);line-height:1.5">Diagnose this device\'s localStorage after a sync incident. Read-only — shows local lead count + filtered matches, copies matching lead JSON to clipboard for manual recovery. <b>Does NOT auto-push to cloud</b> (use forceCloudSync separately if needed).</p>';
+
+ // Action buttons
+ m += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">';
+ m += '<button onclick="_leadAuditFn()" style="padding:8px 14px;border-radius:6px;border:none;background:#2980b9;color:#fff;cursor:pointer;font-size:13px;font-weight:600">▶ Run audit now (this device)</button>';
+ m += '<button onclick="copyLeadAuditScript()" style="padding:8px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px;font-weight:600">📋 Copy script</button>';
+ m += '<button onclick="copyLeadAuditBookmarklet()" style="padding:8px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px;font-weight:600">🔖 Copy bookmarklet</button>';
+ m += '</div>';
+
+ // Drag-to-bookmarks helper
+ m += '<div style="margin-bottom:14px;padding:10px 12px;background:var(--ptint);border-radius:8px;border:1px dashed var(--border)">';
+ m += '<div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px">Or drag this to your bookmarks bar (then iCloud-sync to phone):</div>';
+ var dragHref = bookmarklet.replace(/"/g, '&quot;');
+ m += '<a href="' + dragHref + '" draggable="true" onclick="event.preventDefault();showToast(\'Drag this link to your bookmarks bar — don\\\'t click\',4000)" style="display:inline-block;padding:6px 12px;border-radius:6px;background:#eaf4fb;color:#2980b9;border:1px solid #2980b9;text-decoration:none;font-size:12px;font-weight:700;cursor:grab">🔍 Lead Audit</a>';
+ m += '<div style="font-size:10px;color:var(--muted);margin-top:6px">Once it\'s in your phone\'s bookmarks, open the CRM in mobile Safari and click the bookmarklet.</div>';
+ m += '</div>';
+
+ // Recovery instructions
+ m += '<div style="margin-bottom:14px;font-size:12px;line-height:1.6">';
+ m += '<div style="font-weight:700;margin-bottom:6px">Recovery flow if you find a lost lead</div>';
+ m += '<ol style="margin:0;padding-left:20px;color:var(--fg)">';
+ m += '<li>Run the bookmarklet on the device that has the lead (usually phone).</li>';
+ m += '<li>Click OK on the confirmation to copy the lead JSON to clipboard.</li>';
+ m += '<li>Get the clipboard to your laptop (AirDrop, Notes, etc.).</li>';
+ m += '<li>On laptop CRM, open console (⌥⌘J) and paste:<br><code style="background:var(--ptint);padding:2px 4px;border-radius:3px;font-size:11px">var t=JSON.parse(prompt("paste JSON"));<br>t.forEach(function(l){if(!leads.find(function(x){return x.phone===l.phone}))leads.push(l)});<br>saveLeads();</code></li>';
+ m += '<li>Confirm <code>leads.length</code> increased.</li>';
+ m += '</ol>';
+ m += '<div style="font-size:11px;color:var(--muted);margin-top:8px"><b>⚠️ Do NOT run forceCloudSync on the device that has the lost lead</b> — that would overwrite local with cloud and lose it.</div>';
+ m += '</div>';
+
+ // Close
+ m += '<div style="display:flex;justify-content:flex-end">';
+ m += '<button onclick="document.getElementById(\'leadAuditModal\').remove()" style="padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;font-size:13px">Close</button>';
+ m += '</div>';
+
+ m += '</div>';
+ overlay.innerHTML = m;
+ document.body.appendChild(overlay);
+}
+
+function copyLeadAuditScript(){
+ _copyTextWithFallback(getLeadAuditScript(), 'Lead Audit script copied — paste into the CRM console (⌥⌘J) on the device you want to audit');
+}
+
+function copyLeadAuditBookmarklet(){
+ _copyTextWithFallback(getLeadAuditBookmarklet(), 'Lead Audit bookmarklet copied — create a new bookmark and paste this as the URL');
+}
+
+function _copyTextWithFallback(text, successMsg){
+ function fallback(){
+  try {
+   var ta = document.createElement('textarea');
+   ta.value = text;
+   ta.style.position = 'fixed';
+   ta.style.opacity = '0';
+   document.body.appendChild(ta);
+   ta.focus();
+   ta.select();
+   document.execCommand('copy');
+   document.body.removeChild(ta);
+   showToast(successMsg, 4000);
+  } catch(e){
+   showToast('Copy failed — select the text manually', 5000);
+  }
+ }
+ if(navigator.clipboard && navigator.clipboard.writeText){
+  navigator.clipboard.writeText(text).then(function(){
+   showToast(successMsg, 4000);
+  }).catch(fallback);
+ } else {
+  fallback();
+ }
+}
+
 function calleyExportCSV(){
  var filterEl = document.getElementById('calleyExportList');
  if(!filterEl) return;
@@ -1850,7 +2143,9 @@ function syncCalleyFromWebhook(silent){
   .then(function(logs){
    if(!logs){ if(!silent) showToast('No webhook log entries found', 3000); return; }
    var keys = Object.keys(logs);
-   var imported = 0, skipped = 0, stageMoves = [];
+   var imported = 0, skipped = 0, autoCreated = 0, autoCreatedNames = [], stageMoves = [];
+   // v1.19.3: track next free lead.id for auto-create
+   var nextLeadId = leads.reduce(function(m, l){ return Math.max(m, (l && l.id) || 0); }, 0) + 1;
    keys.forEach(function(fbKey){
     var e = logs[fbKey];
     if(!e) return;
@@ -1858,19 +2153,20 @@ function syncCalleyFromWebhook(silent){
     var mobile = ((pb.Mobile||'')+'').replace(/\D/g,'');
     if(mobile.length > 10) mobile = mobile.slice(-10);
     if(!mobile) return;
+    // v1.19.3: skip obvious junk (test calls) so auto-create doesn't seed garbage
+    var rawName = (pb.Name||'').trim();
+    if(mobile === '0000000000' || rawName.toLowerCase() === 'test call' || !rawName){ skipped++; return; }
     var lead = leads.find(function(l){
      var p = ((l.phone||'')+'').replace(/\D/g,'');
      if(p.length > 10) p = p.slice(-10);
      return p === mobile;
     });
-    if(!lead){ skipped++; return; }
-    // Dedup — skip if this Firebase key already in the lead's callLog
-    if((lead.callLog||[]).some(function(c){ return c && c.calleyId === fbKey; })){ skipped++; return; }
     var feedback = pb['Feed Back'] || 'No Answer';
     var outcome = CALLEY_DISPOSITION_MAP[feedback] || 'No Answer';
     var dateOfCall = pb['Date Of Call'] || '';
     var duration = pb['Call Duration'] || '0:00';
     var callNote = pb['Call Note'] || '';
+    var noteField = pb['Note'] || '';
     // Parse Calley date "2026-05-13 12:08:01" → ISO
     var isoDate;
     try {
@@ -1879,6 +2175,52 @@ function syncCalleyFromWebhook(silent){
       isoDate = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2], +parts[3], +parts[4], +parts[5])).toISOString();
      } else { isoDate = new Date().toISOString(); }
     } catch(e){ isoDate = new Date().toISOString(); }
+    // === v1.19.3: AUTO-CREATE stub lead when phone has no match ===
+    // Prior behavior dropped the webhook silently. Today (2026-05-27) we lost 13 calls
+    // this way after the firebaseLoadAll merge bug wiped post-may22 leads. Now we
+    // reconstruct a minimal lead from the webhook payload so the call is never lost.
+    if(!lead){
+     var noteParts = noteField.split('|').map(function(s){return s.trim();});
+     var newInterest = noteParts[0] || 'Life Insurance';
+     var newSource = noteParts[1] || 'Salesforce Campaign';
+     if(newSource.toLowerCase() === 'salesforce') newSource = 'Salesforce Campaign';
+     var initStage = 'attempting', initLostReason = '';
+     if(outcome === 'Connected') initStage = 'connected';
+     else if(outcome === 'Discovery') initStage = 'discovery';
+     else if(outcome === 'Appt Set') initStage = 'meeting_set';
+     else if(outcome === 'Lost'){ initStage = 'lost'; initLostReason = 'Not Interested'; }
+     else if(outcome === 'Bad #'){ initStage = 'lost'; initLostReason = 'Bad Number'; }
+     else if(outcome === 'Nurturing') initStage = 'incubator';
+     else if(outcome === 'Quoted') initStage = 'quoted';
+     lead = {
+      id: nextLeadId++,
+      name: rawName,
+      phone: mobile,
+      email: '',
+      interest: newInterest,
+      source: newSource,
+      agent: '',
+      age: '',
+      notes: 'Auto-created v1.19.3 from Calley webhook — no prior lead record',
+      stage: initStage,
+      lostReason: initLostReason,
+      created: isoDate,
+      stageEnteredDate: isoDate,
+      callLog: [],
+      calleyPushed: true,
+      calleyPushedDate: isoDate,
+      contactSynced: false,
+      meetingDate: '',
+      meetingTime: '',
+      meetingType: '',
+      estPremium: ''
+     };
+     leads.push(lead);
+     autoCreated++;
+     autoCreatedNames.push(rawName);
+    }
+    // Dedup — skip if this Firebase key already in the lead's callLog
+    if((lead.callLog||[]).some(function(c){ return c && c.calleyId === fbKey; })){ skipped++; return; }
     if(!lead.callLog) lead.callLog = [];
     lead.callLog.push({
      date: isoDate,
@@ -1912,17 +2254,20 @@ function syncCalleyFromWebhook(silent){
      stageMoves.push(lead.name+': '+CRM_STAGE_LABELS[prevStage]+' → '+CRM_STAGE_LABELS[lead.stage]);
     }
    });
-   if(imported > 0){
+   if(imported > 0 || autoCreated > 0){
     saveLeads();
     localStorage.setItem('calley_last_sync', new Date().toISOString());
     var msg = '✅ Calley webhook sync: '+imported+' new call'+(imported===1?'':'s')+' imported';
+    if(autoCreated > 0){
+     msg += '<br><span style="font-size:11px;color:#ff6b35">🆕 '+autoCreated+' new lead'+(autoCreated===1?'':'s')+' auto-created from orphan webhook'+(autoCreated===1?'':'s')+': '+autoCreatedNames.slice(0,5).join(', ')+(autoCreatedNames.length>5?' (+'+(autoCreatedNames.length-5)+')':'')+'</span>';
+    }
     if(stageMoves.length > 0) msg += '<br><span style="font-size:11px">'+stageMoves.slice(0,5).join('<br>')+(stageMoves.length>5?'<br>… and '+(stageMoves.length-5)+' more':'')+'</span>';
     if(!silent) showToast(msg, 8000);
     try { renderCRM(); } catch(e){}
    } else if(!silent){
     showToast('✅ Calley up to date — no new calls', 3000);
    }
-   return {imported: imported, skipped: skipped};
+   return {imported: imported, skipped: skipped, autoCreated: autoCreated};
   })
   .catch(function(err){
    console.error('Calley webhook sync failed:', err);
@@ -8050,6 +8395,8 @@ function renderCallQueue(){
   h += '<span id="calleyFilterLabel" style="display:none">'+filterLabel+'</span>';
   if(calleyPushedCount > 0) h += '<span style="font-size:9px;color:#ff6b35">📱 '+calleyPushedCount+' in Calley</span>';
   h += '<button class="btn btn-sm" onclick="syncCalleyFromWebhook()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Pull Calley call results from the webhook log (no API token needed)">🔄 Sync Calley</button>';
+  h += '<button class="btn btn-sm" onclick="showCleanCalleyModal()" style="background:#8e44ad;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Remove Lost / Bad Number / Wrong Number rows from the Calley list">🗑️ Clean Calley</button>';
+  h += '<button class="btn btn-sm" onclick="showLeadAuditModal()" style="background:#2980b9;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Audit local leads after a sync incident — read-only diagnostic + recovery bookmarklet">🔍 Lead Audit</button>';
   var lastSync = localStorage.getItem('calley_last_sync');
   if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
   h += '</div>';
@@ -8129,7 +8476,16 @@ function renderCallQueue(){
    var openObj = (lead.objections||[]).filter(function(o){return o.status==='Open'}).length;
    if(openObj > 0) h += '<span title="'+openObj+' open objection'+(openObj>1?'s':'')+'" style="background:#e74c3c;color:#fff;font-size:8px;padding:1px 5px;border-radius:4px;font-weight:600">⚠️'+openObj+'</span>';
    h += '<span class="badge" style="background:'+borderColor+';color:#fff;font-size:8px;padding:1px 5px;margin-left:auto">'+CRM_STAGE_LABELS[lead.stage]+'</span>';
-   if(lead.callbackDate && isCallbackDueToday(lead)) h += '<span class="badge" style="background:#e74c3c;color:#fff;font-size:8px;padding:1px 5px">📅 Callback</span>';
+   // Callback badge in queue card — color-coded; shows the date so user knows when callback is.
+   if(lead.callbackDate){
+    var _tYMD = toYMD(new Date());
+    var _qCbColor = lead.callbackDate < _tYMD ? '#e74c3c' : (lead.callbackDate === _tYMD ? '#f39c12' : '#3498db');
+    var _qCbLabel = lead.callbackDate === _tYMD ? '📅 TODAY' : '📅 ' + (function(){
+     var _d = new Date(lead.callbackDate + 'T00:00:00');
+     return _d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    })();
+    h += '<span class="badge" title="Callback: '+lead.callbackDate+'" style="background:'+_qCbColor+';color:#fff;font-size:8px;padding:1px 5px">'+_qCbLabel+'</span>';
+   }
    h += '</div></div>';
   });
   h += '</div>';
@@ -8821,6 +9177,26 @@ function renderLeadDetail(){
   var psLbl = POLICY_STATUS_LABELS[lead.policyStatus] || lead.policyStatus;
   var psCol = POLICY_STATUS_COLORS[lead.policyStatus] || '#7f8c8d';
   h += '<span class="badge" title="Policy status (DuetBooks)" style="background:'+psCol+';color:#fff;font-size:10px;padding:2px 8px">📋 '+psLbl+'</span>';
+ }
+ // Callback badge — tap to clear (with confirm). Color-coded by date proximity.
+ // Saves scrolling down to find the existing callback section.
+ if(lead.callbackDate){
+  var _todayYMD = toYMD(new Date());
+  var _cbColor, _cbLabel;
+  if(lead.callbackDate < _todayYMD){
+   _cbColor = '#e74c3c'; // red — overdue
+   _cbLabel = '⚠ Callback overdue: ' + lead.callbackDate;
+  } else if(lead.callbackDate === _todayYMD){
+   _cbColor = '#f39c12'; // amber — due today
+   _cbLabel = '🔁 Callback TODAY';
+  } else {
+   _cbColor = '#3498db'; // blue — future
+   var _cbD = new Date(lead.callbackDate + 'T00:00:00');
+   var _cbShort = _cbD.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+   _cbLabel = '🔁 Callback: ' + _cbShort;
+  }
+  var _cbConfirmMsg = 'Clear callback for ' + (lead.name||'this lead') + ' on ' + lead.callbackDate + '?';
+  h += '<span class="badge" title="Tap to clear callback" onclick="if(confirm('+JSON.stringify(_cbConfirmMsg)+')) clearCallback('+lead.id+')" style="background:'+_cbColor+';color:#fff;font-size:10px;padding:2px 8px;cursor:pointer">'+_cbLabel+'</span>';
  }
  if(lead.stage === 'incubator'){
   h += '<select onchange="setNurturingTemp('+lead.id+',this.value)" style="width:70px;font-size:10px">';
