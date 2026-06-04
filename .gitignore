@@ -10,3 +10,6 @@
 client_secret_*
 google_credentials.json
 google_token.json
+
+# Local backups — git history already covers app versions
+backups/
