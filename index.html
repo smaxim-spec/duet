@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.19.4';
-var APP_BUILD_DATE = '2026-05-31';
+var APP_VERSION = 'v1.19.5';
+var APP_BUILD_DATE = '2026-06-04';
 var CHANGELOG = [
+ {ver:'v1.19.5', date:'2026-06-04', notes:[
+  'CHANGE: 🗑️ Clean Calley now also removes already-engaged leads from the Calley dial list — Connected, Discovery, Nurturing, and Quoted — in addition to the dead dispositions (Lost / Bad Number / Wrong Number).',
+  'Why: once a lead is connected or further along, it lives in DuetCRM — no need to keep cold-dialing them. Keeps the Calley list to fresh, un-worked numbers only.',
+  'Filter regex is now /(Lost|Bad Number|Wrong Number|Connected|Discovery|Nurturing|Quoted)/i. Confirm dialog + modal updated to spell out exactly what gets removed.',
+  'Safe: this only deletes rows from the Calley dial list. Lead records (and all history) stay untouched in DuetCRM / Firebase.'
+ ]},
  {ver:'v1.19.4', date:'2026-05-31', notes:[
   'NEW: Callback badge in lead header — shows callback date as a color-coded pill next to the stage badge (blue=future, amber=today, red=overdue). Tap to clear (with confirm).',
   'NEW: Call Queue cards now show callback date pill on every lead with a callback (was only showing "Callback" tag if due today)',
@@ -1820,7 +1826,8 @@ function calleyResetAndPush(){
 // === Clean Calley — v1.19.1 ===
 // Builds a console snippet + bookmarklet that, when pasted into the Calley
 // web panel (app.getcalley.com), deletes every row whose visible text
-// matches Lost / Bad Number / Wrong Number. Deletion goes through Calley's
+// matches Lost / Bad Number / Wrong Number (dead) or Connected / Discovery /
+// Nurturing / Quoted (already-engaged pipeline leads). Deletion goes through Calley's
 // own per-row endpoint (Handler/delListData.ashx) with the user's session
 // cookies. We never touch Calley directly from DuetCRM.
 function _calleyCleanupFn(){
@@ -1834,7 +1841,7 @@ function _calleyCleanupFn(){
  if(!t){ alert('Call list table not found. Make sure you are on the Calley list page.'); return; }
  var targets = [];
  var rows = t.querySelectorAll('tbody tr');
- var FILTER_REGEX = /(Lost|Bad Number|Wrong Number)/i;
+ var FILTER_REGEX = /(Lost|Bad Number|Wrong Number|Connected|Discovery|Nurturing|Quoted)/i;
  [].forEach.call(rows, function(r){
   if(!FILTER_REGEX.test(r.textContent)) return;
   var trash = r.querySelector('a[onclick*="isConfirmDelete"]');
@@ -1847,8 +1854,8 @@ function _calleyCleanupFn(){
    targets.push({id: m[1], lst: m[2], name: name});
   }
  });
- if(targets.length === 0){ alert('No Lost / Bad Number / Wrong Number rows visible on this page.'); return; }
- if(!confirm('Delete ' + targets.length + ' dispositioned rows from Calley?\n\n(Lost / Bad Number / Wrong Number)')) return;
+ if(targets.length === 0){ alert('No matching rows visible on this page.\n\n(Lost / Bad Number / Wrong Number / Connected / Discovery / Nurturing / Quoted)'); return; }
+ if(!confirm('Delete ' + targets.length + ' dispositioned rows from Calley?\n\nDead: Lost / Bad Number / Wrong Number\nEngaged: Connected / Discovery / Nurturing / Quoted\n\n(Removes them from the Calley dial list only — lead data stays in DuetCRM.)')) return;
  var done = 0, failed = 0;
  function deleteOne(idx){
   if(idx >= targets.length){
@@ -1893,7 +1900,7 @@ function showCleanCalleyModal(){
 
  var m = '<div style="background:var(--bg);border-radius:12px;padding:20px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3);color:var(--fg)">';
  m += '<h3 style="margin:0 0 4px 0;color:#ff6b35">🗑️ Clean Calley</h3>';
- m += '<p style="margin:0 0 14px 0;font-size:12px;color:var(--muted);line-height:1.5">Removes dispositioned contacts (<b>Lost</b>, <b>Bad Number</b>, <b>Wrong Number</b>) from your active Calley list. Cleanup runs in Calley\'s web panel using your logged-in session — DuetCRM never talks to Calley directly here.</p>';
+ m += '<p style="margin:0 0 14px 0;font-size:12px;color:var(--muted);line-height:1.5">Removes dispositioned contacts from your active Calley list — both <b>dead</b> (<b>Lost</b>, <b>Bad Number</b>, <b>Wrong Number</b>) and <b>already-engaged</b> (<b>Connected</b>, <b>Discovery</b>, <b>Nurturing</b>, <b>Quoted</b>), so you don\'t re-dial people already in your pipeline. Lead data stays in DuetCRM — this only clears the Calley dial list. Cleanup runs in Calley\'s web panel using your logged-in session — DuetCRM never talks to Calley directly here.</p>';
 
  // Open Calley link
  m += '<div style="margin-bottom:14px">';
@@ -8395,7 +8402,7 @@ function renderCallQueue(){
   h += '<span id="calleyFilterLabel" style="display:none">'+filterLabel+'</span>';
   if(calleyPushedCount > 0) h += '<span style="font-size:9px;color:#ff6b35">📱 '+calleyPushedCount+' in Calley</span>';
   h += '<button class="btn btn-sm" onclick="syncCalleyFromWebhook()" style="background:#ff6b35;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Pull Calley call results from the webhook log (no API token needed)">🔄 Sync Calley</button>';
-  h += '<button class="btn btn-sm" onclick="showCleanCalleyModal()" style="background:#8e44ad;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Remove Lost / Bad Number / Wrong Number rows from the Calley list">🗑️ Clean Calley</button>';
+  h += '<button class="btn btn-sm" onclick="showCleanCalleyModal()" style="background:#8e44ad;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Remove dead (Lost / Bad Number / Wrong Number) AND engaged (Connected / Discovery / Nurturing / Quoted) rows from the Calley list">🗑️ Clean Calley</button>';
   h += '<button class="btn btn-sm" onclick="showLeadAuditModal()" style="background:#2980b9;color:#fff;font-size:10px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer" title="Audit local leads after a sync incident — read-only diagnostic + recovery bookmarklet">🔍 Lead Audit</button>';
   var lastSync = localStorage.getItem('calley_last_sync');
   if(lastSync) h += '<span style="font-size:9px;color:var(--muted)">Last sync: '+new Date(lastSync).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'</span>';
