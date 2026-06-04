@@ -313,9 +313,17 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.19.5';
+var APP_VERSION = 'v1.20.0';
 var APP_BUILD_DATE = '2026-06-04';
 var CHANGELOG = [
+ {ver:'v1.20.0', date:'2026-06-04', notes:[
+  'SAFETY: 🛑 Clobber guard — the app now REFUSES to overwrite a much larger cloud dataset with a much smaller local one (the stale-localStorage wipe that has repeatedly cost leads). If a save would drop the cloud from e.g. 567 leads to 394, it is blocked with a toast telling you to 🔄 Sync from Cloud first. Fails open on network errors; override via window._clobberGuardOverride=true.',
+  'NEW: 🏋️ Weekly Review is now multi-week. A ◀ Prev / week dropdown / Next ▶ navigator lets you view any past week — recomputed live from your call history (data goes back to late March).',
+  'NEW: 📈 Grade Trend strip at the top — last 6 weeks as tappable bars (A–F + score), so you can see your trajectory at a glance and jump to any week.',
+  'NEW: Each completed week is auto-archived to Firebase (/weeklyReviews/<weekStart>) — opening the review backfills the last 6 weeks, building a permanent record.',
+  'CHANGE: Removed the 💰 $100K Goal Pace Check section and the Revenue Target game-plan line — financial tracking lives in DuetBooks now. The Weekly Review stays focused on call activity, consistency, contact rate, and appointments.',
+  'Note: the grade and all activity metrics are historically accurate per week (computed from dated call logs + meeting dates).'
+ ]},
  {ver:'v1.19.5', date:'2026-06-04', notes:[
   'CHANGE: 🗑️ Clean Calley now also removes already-engaged leads from the Calley dial list — Connected, Discovery, Nurturing, and Quoted — in addition to the dead dispositions (Lost / Bad Number / Wrong Number).',
   'Why: once a lead is connected or further along, it lives in DuetCRM — no need to keep cold-dialing them. Keeps the Calley list to fresh, un-worked numbers only.',
@@ -641,12 +649,44 @@ function fbCleanKeys(obj){
  return clean;
 }
 
-function fbSave(key, data){
+// Collections protected by the clobber guard — array data that has been wiped before
+// by a stale device pushing its smaller localStorage over a larger cloud.
+var FB_GUARD_KEYS = {leads:1, appointments:1, pipeline_2025:1, pipeline_2026:1};
+
+function _fbSaveRaw(key, data){
  return fetch(FIREBASE_URL+'/'+key+'.json', {
   method:'PUT',
   headers:{'Content-Type':'application/json'},
   body: JSON.stringify({data:fbCleanKeys(data), updated:new Date().toISOString(), device:DEVICE_NAME})
  });
+}
+
+// CLOBBER GUARD (v1.20.0): refuse to overwrite a much larger cloud array with a much
+// smaller local one — the stale-localStorage wipe that has repeatedly cost us leads.
+// Fails OPEN on network errors (never blocks a legit offline save) and fails CLOSED
+// only when it confirms the cloud genuinely holds many more records than we're writing.
+// Escape hatch: set  window._clobberGuardOverride = true  in the console to force a push.
+function fbSave(key, data){
+ if((typeof window !== 'undefined' && window._clobberGuardOverride) || !FB_GUARD_KEYS[key] || !Array.isArray(data)){
+  return _fbSaveRaw(key, data);
+ }
+ var localCount = data.length;
+ return fetch(FIREBASE_URL+'/'+key+'/data.json?shallow=true')
+  .then(function(r){ return r.ok ? r.json() : null; })
+  .then(function(cloud){
+   var cloudCount = (cloud && typeof cloud === 'object') ? Object.keys(cloud).length : 0;
+   // Catastrophic shrink: cloud is sizable, we'd drop 25+ records, and keep <85% of them.
+   if(cloudCount >= 50 && (cloudCount - localCount) >= 25 && localCount < cloudCount * 0.85){
+    try { updateFbStatus('error'); } catch(e){}
+    try { showToast('🛑 Save blocked — about to overwrite '+cloudCount+' cloud '+key+' with only '+localCount+' on this device. Your data was NOT changed. Tap 🔄 Sync from Cloud to pull the latest first.', 12000); } catch(e){}
+    console.warn('[clobber-guard] BLOCKED '+key+' push — cloud='+cloudCount+' local='+localCount+'. To force: window._clobberGuardOverride=true');
+    return Promise.reject(new Error('clobber-guard blocked '+key+' ('+cloudCount+'->'+localCount+')'));
+   }
+   return _fbSaveRaw(key, data);
+  }, function(){
+   // couldn't read cloud count (offline / network) — fail open so real saves still work
+   return _fbSaveRaw(key, data);
+  });
 }
 
 function fbLoad(key){
@@ -6316,10 +6356,57 @@ function deleteJournalEntry(globalIdx){
 // ═══════════════════════════════════════════════════════════════
 // WEEKLY SALES COACH — Honest performance review & action plan
 // ═══════════════════════════════════════════════════════════════
-function showWeeklyCoach(){
+// Compute a week's score headlessly (drives the grade-trend strip). Mirrors
+// the inline scoring below so the trend matches the rendered grade exactly.
+function _coachWeekScore(allCalls, leadsArr, st, thursISO, refDate){
+ var dailyGoal = st.dailyCallGoal || 40;
+ var apptGoal = st.weeklyApptGoal || 15;
+ var endISO = toYMD(refDate);
+ var wk = allCalls.filter(function(c){ return c.date >= thursISO && c.date <= endISO; });
+ var byDay = {};
+ wk.forEach(function(c){ byDay[c.date] = (byDay[c.date]||0) + 1; });
+ var weekdays = 0, dd = new Date(thursISO+'T00:00:00');
+ while(dd <= refDate){ var w = dd.getDay(); if(w>=1 && w<=5) weekdays++; dd.setDate(dd.getDate()+1); }
+ var zero = 0, ck = new Date(thursISO+'T00:00:00');
+ while(ck < refDate){ var w2 = ck.getDay(); var y = toYMD(ck); if(w2>=1 && w2<=5 && !byDay[y]) zero++; ck.setDate(ck.getDate()+1); }
+ var active = Object.keys(byDay);
+ var atGoal = active.filter(function(y){ return byDay[y] >= dailyGoal; });
+ var contactTypes = ['Connected','Discovery','Appt Set','Quoted','Won','Callback','Spoke - Interested','Spoke - Wants Info'];
+ var contacts = wk.filter(function(c){ return contactTypes.indexOf(c.outcome) >= 0; }).length;
+ var cr = wk.length > 0 ? contacts/wk.length*100 : 0;
+ var appts = leadsArr.filter(function(l){ return l.meetingDate && l.meetingDate >= thursISO && l.meetingDate <= endISO; }).length;
+ var s = 0;
+ s += Math.round(Math.min(1, weekdays>0 ? wk.length/(dailyGoal*weekdays) : 0) * 30);
+ var consist = weekdays>0 ? (weekdays-zero)/weekdays : 0;
+ var over = active.length>0 ? atGoal.length/active.length : 0;
+ s += Math.round(((consist*0.6)+(over*0.4))*25);
+ s += Math.round(Math.min(1, cr/25)*20);
+ s += Math.round(Math.min(1, appts/apptGoal)*25);
+ var g = s>=90?'A':s>=80?'B+':s>=70?'B':s>=60?'C+':s>=50?'C':s>=40?'D':'F';
+ return {score:s, grade:g, calls:wk.length, appts:appts, contactRate:Math.round(cr)};
+}
+
+// Persist a completed week's snapshot to Firebase (idempotent upsert, fire-and-forget).
+function _archiveWeeklyReview(thursISO, wedISO, data){
+ try{
+  fetch('https://duet-crm-default-rtdb.firebaseio.com/weeklyReviews/'+thursISO+'.json', {
+   method:'PUT', headers:{'Content-Type':'application/json'},
+   body: JSON.stringify({weekStart:thursISO, weekEnd:wedISO, score:data.score, grade:data.grade, calls:data.calls, appts:data.appts, contactRate:data.contactRate, archivedAt:new Date().toISOString()})
+  }).catch(function(){});
+ }catch(e){}
+}
+
+// Re-render the weekly review for another week. Empty string = current (in-progress) week.
+function _gotoCoachWeek(refISO){
+ var o = document.getElementById('coachOverlay'); if(o) o.remove();
+ showWeeklyCoach(refISO || '');
+}
+
+function showWeeklyCoach(weekRefISO){
  var GOAL = 100000;
  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
- var now = new Date();
+ var isCurrentWeek = !weekRefISO;
+ var now = weekRefISO ? new Date(weekRefISO+'T12:00:00') : new Date();
  var today = toYMD(now);
 
  // ── Week boundaries (Thu–Wed) ──
@@ -6342,7 +6429,7 @@ function showWeeklyCoach(){
  });
 
  // This week / last week calls
- var thisWeekCalls = allCalls.filter(function(c){return c.date >= thisThursISO});
+ var thisWeekCalls = allCalls.filter(function(c){return c.date >= thisThursISO && c.date <= today});
  var lastWeekCalls = allCalls.filter(function(c){return c.date >= lastThursISO && c.date <= lastWedISO});
 
  // Calls by day this week
@@ -6449,8 +6536,64 @@ function showWeeklyCoach(){
  h += '<div style="text-align:center;margin-bottom:20px">';
  h += '<div style="font-size:40px">🏋️</div>';
  h += '<h2 style="color:var(--pri);margin:4px 0">Weekly Sales Coach Review</h2>';
- h += '<div style="color:var(--muted);font-size:13px">Week of '+weekLabel+'</div>';
+ h += '<div style="color:var(--muted);font-size:13px">Week of '+weekLabel+(isCurrentWeek?' <span style="color:var(--pri);font-weight:700">(in progress)</span>':'')+'</div>';
  h += '</div>';
+
+ // ── WEEK NAVIGATOR + GRADE TREND (v1.20.0) ──
+ (function(){
+  var realNow = new Date();
+  var rNowD = realNow.getDay();
+  var realThurs = new Date(realNow); realThurs.setDate(realNow.getDate() - ((rNowD+3)%7)); realThurs.setHours(0,0,0,0);
+  var realThursISO = realThurs.toISOString().substring(0,10);
+  function wkLabel(thISO){
+   var a = new Date(thISO+'T12:00:00'); var b = new Date(a); b.setDate(b.getDate()+6);
+   return months[a.getMonth()]+' '+a.getDate()+'–'+months[b.getMonth()]+' '+b.getDate();
+  }
+  // Last 8 weeks, newest first
+  var weeks = [];
+  var cur = new Date(realThurs);
+  for(var i=0;i<8;i++){
+   var thISO = cur.toISOString().substring(0,10);
+   var wed = new Date(cur); wed.setDate(wed.getDate()+6);
+   var wedISO = wed.toISOString().substring(0,10);
+   weeks.push({thursISO:thISO, wedISO:wedISO, isCur:(thISO===realThursISO), label:wkLabel(thISO)});
+   cur.setDate(cur.getDate()-7);
+  }
+  var dispIdx = -1; weeks.forEach(function(w,ix){ if(w.thursISO===thisThursISO) dispIdx=ix; });
+  var older = (dispIdx>=0 && dispIdx<weeks.length-1) ? weeks[dispIdx+1] : null;
+  var newer = (dispIdx>0) ? weeks[dispIdx-1] : null;
+  // Nav bar
+  h += '<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">';
+  h += '<button onclick="_gotoCoachWeek(\''+(older?older.wedISO:'')+'\')" '+(older?'':'disabled')+' style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);font-size:13px;'+(older?'cursor:pointer':'opacity:.4;cursor:default')+'">◀ Prev</button>';
+  h += '<select onchange="_gotoCoachWeek(this.value)" style="width:auto;max-width:220px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);font-size:13px;font-weight:600">';
+  weeks.forEach(function(w){
+   var val = w.isCur ? '' : w.wedISO;
+   var sel = (w.thursISO===thisThursISO) ? ' selected' : '';
+   h += '<option value="'+val+'"'+sel+'>'+(w.isCur?'This week (in progress)':w.label)+'</option>';
+  });
+  h += '</select>';
+  h += '<button onclick="_gotoCoachWeek(\''+(newer?(newer.isCur?'':newer.wedISO):'')+'\')" '+(newer?'':'disabled')+' style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);font-size:13px;'+(newer?'cursor:pointer':'opacity:.4;cursor:default')+'">Next ▶</button>';
+  h += '</div>';
+  // Grade trend — last 6 weeks (oldest→newest), clickable. Also auto-archives completed weeks.
+  var trend = weeks.slice(0,6).reverse();
+  h += '<div class="card" style="padding:12px"><div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center;font-weight:700">📈 GRADE TREND — last 6 weeks (tap a bar)</div>';
+  h += '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:6px;height:96px">';
+  trend.forEach(function(w){
+   var refDate = w.isCur ? realNow : new Date(w.wedISO+'T12:00:00');
+   var sc = _coachWeekScore(allCalls, leads, settings, w.thursISO, refDate);
+   if(!w.isCur) _archiveWeeklyReview(w.thursISO, w.wedISO, sc);
+   var barH = Math.max(6, Math.round(sc.score/100*64));
+   var col = sc.score>=80?'var(--grn)':sc.score>=60?'var(--amb)':'#c0392b';
+   var hi = (w.thursISO===thisThursISO);
+   var navVal = w.isCur ? '' : w.wedISO;
+   h += '<div onclick="_gotoCoachWeek(\''+navVal+'\')" style="flex:1;text-align:center;cursor:pointer" title="'+(w.isCur?'This week':w.label)+': '+sc.score+'/100, '+sc.calls+' calls">';
+   h += '<div style="font-size:12px;font-weight:800;color:'+col+'">'+sc.grade+'</div>';
+   h += '<div style="height:'+barH+'px;background:'+col+';border-radius:4px 4px 0 0;margin:2px auto 0;width:62%;'+(hi?'outline:2px solid var(--pri);outline-offset:1px':'opacity:.7')+'"></div>';
+   h += '<div style="font-size:9px;color:var(--muted);margin-top:3px">'+(w.isCur?'Now':wkLabel(w.thursISO).split('–')[0])+'</div>';
+   h += '</div>';
+  });
+  h += '</div></div>';
+ })();
 
  // ── OVERALL GRADE ──
  var totalScore = 0;
@@ -6613,35 +6756,7 @@ function showWeeklyCoach(){
   h += '</table></div>';
  }
 
- // ── $100K GOAL PACE CHECK ──
- h += '<div class="card"><h3>💰 $100K Goal Pace Check</h3>';
- var adjPct = Math.min(100, (adjustedTotal / GOAL) * 100);
- var ytdPct = Math.min(100, (ytdNet / GOAL) * 100);
- var expectedPct = (currentMonthIdx / 12) * 100;
- var onPace = adjPct >= expectedPct;
-
- h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">';
- h += '<div style="text-align:center;padding:10px;background:var(--gtint);border-radius:var(--radius)"><div style="font-size:20px;font-weight:800;color:var(--grn)">'+fmt(ytdNet)+'</div><div style="font-size:10px;color:var(--muted)">Confirmed Net</div></div>';
- h += '<div style="text-align:center;padding:10px;background:var(--gtint);border-radius:var(--radius)"><div style="font-size:20px;font-weight:800;color:var(--pri)">'+fmt(pipelineNet)+'</div><div style="font-size:10px;color:var(--muted)">Pipeline Est Net</div></div>';
- h += '<div style="text-align:center;padding:10px;background:'+(onPace?'var(--gtint)':'#fff5f5')+';border-radius:var(--radius)"><div style="font-size:20px;font-weight:800;color:'+(onPace?'var(--grn)':'#c0392b')+'">'+fmt(remaining)+'</div><div style="font-size:10px;color:var(--muted)">Remaining to $100K</div></div>';
- h += '</div>';
-
- h += '<div style="font-size:13px;margin-bottom:8px">';
- h += '<b>Monthly target:</b> '+fmt(monthlyNeeded)+' net/month for '+monthsLeft+' months<br>';
- h += '<b>Weekly target:</b> ~'+fmt(weeklyNeeded)+' net/week<br>';
- if(avgDealComm > 0){
-  h += '<b>Deals needed:</b> ~'+dealsNeeded+' more closed deals at '+fmt(avgDealComm)+' avg commission<br>';
-  var dialsPerDeal = twApptSet > 0 ? Math.round(thisWeekCalls.length / twApptSet * 3) : 150;
-  h += '<b>At your current pace:</b> ~'+dialsPerDeal+' dials per closed deal → need <b>'+Math.round(dealsNeeded * dialsPerDeal / weeksLeft / 5)+'+ dials/day</b> to stay on track';
- }
- h += '</div>';
-
- if(!onPace){
-  h += '<div style="padding:10px;background:#fff5f5;border-left:4px solid #c0392b;border-radius:var(--radius);font-size:12px;color:#c0392b;font-weight:600">';
-  h += '🚨 You are behind pace for $100K. You need to either increase dial volume, improve your appointment conversion, or both. Every week below target pushes the goal further away.';
-  h += '</div>';
- }
- h += '</div>';
+ // ── $100K GOAL PACE CHECK — removed v1.20.0 (financial tracking lives in DuetBooks) ──
 
  // ── COACHING NOTES (The Hard Truth) ──
  h += '<div class="card" style="border:2px solid var(--pri)"><h3 style="color:var(--pri)">🎯 Coach\'s Notes — The Hard Truth</h3>';
@@ -6903,9 +7018,6 @@ function showWeeklyCoach(){
  var nextApptTarget = Math.max(apptGoal, twAppts + 2);
  plan.push('<b>'+(plan.length+1)+'. Appointment Target:</b> Set '+nextApptTarget+' appointments next week. You had '+twAppts+' this week — beat it.');
 
- if(avgDealComm > 0){
-  plan.push('<b>'+(plan.length+1)+'. Revenue Target:</b> You need '+fmt(weeklyNeeded)+'/week net income. That\'s closing ~'+Math.ceil(weeklyNeeded/(avgDealComm*takeHomeRate))+' deals per week. Every appointment is a chance — don\'t let any slip.');
- }
 
  plan.push('<b>'+(plan.length+1)+'. Practice the Drill:</b> Do this week\'s sales drill (from the Mastery lesson above) EVERY DAY. Mastery comes from repetition, not reading.');
 
