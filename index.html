@@ -313,9 +313,14 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.20.1';
+var APP_VERSION = 'v1.20.2';
 var APP_BUILD_DATE = '2026-06-11';
 var CHANGELOG = [
+ {ver:'v1.20.2', date:'2026-06-11', notes:[
+  'FIX: Funnel Health tab — its $100K target tracker and open-pipeline stats now read DuetBooks (source of truth) instead of the stale local pl mirror, matching the Manager Report fix in v1.20.1. The tab fetches the DuetBooks snapshot on open and re-renders once so the numbers are correct on their own (no need to open the Manager Report first).',
+  'DATA: Imported the missing Apr P1, Apr P2, and May P1 pay periods from the Workday + Varicent statements. YTD Net Deposited corrected $23,531.67 → $35,065.59 (matches Workday\'s official YTD through 05/15). Still missing: May P2 (no Workday payslip filed yet) and June.',
+  'Read-only for cases; periods import added 3 records to periods_2026 only.'
+ ]},
  {ver:'v1.20.1', date:'2026-06-11', notes:[
   'FIX: Manager Weekly Report — the $100K target tracker\'s "Open Pipeline" now reads DuetBooks (source of truth) instead of the stale local pl mirror. It was counting already-paid deals as open (e.g. 39 "open" cases when ~24 were already paid in DuetBooks), inflating Open Pipeline Comm and the Adjusted Total.',
   'Now excludes paid / paid-partial / declined, matching the "All Open Cases" list below it, so the two numbers agree. Read-only — no data in the CRM or DuetBooks is changed.',
@@ -7208,6 +7213,21 @@ function _loadCalendarAudit(startDate, endDate){
 }
 
 function renderFunnelHealth(){
+ // v1.20.2: refresh the DuetBooks snapshot so the $100K tracker + open-pipeline stats
+ // in this tab match the Manager Report (DuetBooks = source of truth). Re-renders once
+ // when the snapshot's statuses change; guarded against render loops.
+ (function(){
+  fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json')
+   .then(function(r){ return r.json(); })
+   .then(function(arr){
+    if(!arr) return;
+    if(!Array.isArray(arr)) arr = Object.values(arr);
+    var prev = window._dbCasesSnapshot ? JSON.stringify(window._dbCasesSnapshot.map(function(c){return c && c.id+':'+c.status})) : '';
+    window._dbCasesSnapshot = arr;
+    var next = JSON.stringify(arr.map(function(c){return c && c.id+':'+c.status}));
+    if(prev !== next){ try{ renderFunnelHealth(); }catch(e){} }
+   }).catch(function(){});
+ })();
  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
  var GOAL = 100000;
  var monthVaricent = {};
@@ -7219,8 +7239,9 @@ function renderFunnelHealth(){
  var completedMonths = monthsWithData.length || 1;
  var trackingAmount = ytdNet > 0 ? ytdNet : ytdVaricent * 0.55;
  var remaining = Math.max(0, GOAL - trackingAmount);
- var openCases = pl.filter(function(c){return c.status!=='paid'}).length;
- var openComm = pl.filter(function(c){return c.status!=='paid'}).reduce(function(s,c){return s+calcCase(c).steveShare},0);
+ var _funnelOpen = _openCasesForTarget();
+ var openCases = _funnelOpen.length;
+ var openComm = _funnelOpen.reduce(function(s,c){return s+calcCase(c).steveShare},0);
  var shareRate = settings.yourShare / 100;
  var totalLeads = leads.length;
 
@@ -7238,7 +7259,9 @@ function renderFunnelHealth(){
  var currentMonthName = months[currentMonthIdx];
  var monthlyNeeded = remaining / Math.max(1, 12 - completedMonths);
  var takeHomeRate = 0.70;
- var allOpenForTarget = pl.filter(function(c){ return c.status !== 'paid'; });
+ // FIX v1.20.2: reads DuetBooks (source of truth) instead of the stale pl mirror,
+ // matching the Manager Report. No data is changed.
+ var allOpenForTarget = _openCasesForTarget();
  var pipelineComm = allOpenForTarget.reduce(function(s,c){ return s + calcCase(c).steveShare; }, 0);
  var pipelineNet = pipelineComm * takeHomeRate;
  var adjustedTotal = ytdNet + pipelineNet;
