@@ -313,9 +313,12 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.20.4';
+var APP_VERSION = 'v1.20.5';
 var APP_BUILD_DATE = '2026-06-11';
 var CHANGELOG = [
+ {ver:'v1.20.5', date:'2026-06-11', notes:[
+  'NEW: Deal Mix Advisor rows are now clickable — tap a category to see every policy behind it (client, product, period, commission), pulled from your Varicent statements. Chargebacks/reversals are flagged in red and renewals are dimmed, so the net commission makes sense (e.g. Life shows ~$7.7K of new sales minus a $3,501 Helberts Tambley chargeback = $4,232 net).'
+ ]},
  {ver:'v1.20.4', date:'2026-06-11', notes:[
   'TWEAK: Deal Mix Advisor "Best ROI" now highlights your biggest earner by total commission (Annuities, 75%) instead of highest per-sale average — a 2-sale category no longer outranks where your money actually comes from. Shows total, % of book, and avg/sale.'
  ]},
@@ -7220,6 +7223,46 @@ function _loadCalendarAudit(startDate, endDate){
  });
 }
 
+// v1.20.5: Deal Mix drill-down — lists every policy behind a category (from the per-period
+// Varicent dealMixDetail), highlighting chargebacks/reversals so the net commission makes sense.
+function showDealMixDetail(cat){
+ var rows = [];
+ (typeof pe !== 'undefined' ? pe : []).forEach(function(per){
+  (per.dealMixDetail || []).forEach(function(e){
+   if(e.cat === cat) rows.push({per:per.label, c:e.c, p:e.p, m:e.m, k:e.k});
+  });
+ });
+ rows.sort(function(a,b){ return b.m - a.m; });
+ var total = rows.reduce(function(s,r){ return s + (r.m||0); }, 0);
+ var newCount = rows.filter(function(r){ return r.k === 'new'; }).length;
+ var grossNew = rows.filter(function(r){ return r.k === 'new'; }).reduce(function(s,r){ return s + r.m; }, 0);
+ var chargebacks = rows.filter(function(r){ return r.m < 0; });
+ var h = '<div style="background:var(--bg);border-radius:12px;max-width:660px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5)">';
+ h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">';
+ h += '<h3 style="margin:0;color:var(--pri)">'+cat+'</h3>';
+ h += '<button onclick="document.getElementById(\'dmDetailOverlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button></div>';
+ h += '<div style="padding:14px 18px">';
+ h += '<div style="font-size:12px;color:var(--muted);margin-bottom:4px"><b>'+newCount+'</b> new sales · gross <b style="color:var(--grn)">'+fmt(grossNew)+'</b>';
+ if(chargebacks.length){ h += ' · <span style="color:#c0392b"><b>'+chargebacks.length+'</b> chargeback'+(chargebacks.length>1?'s':'')+' '+fmt(chargebacks.reduce(function(s,r){return s+r.m;},0))+'</span>'; }
+ h += ' · <b>net '+fmt(total)+'</b></div>';
+ h += '<table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:8px"><tr style="text-align:left;border-bottom:1px solid var(--border);color:var(--muted)"><th style="padding:4px 0">Client</th><th>Product</th><th>Period</th><th style="text-align:right">Commission</th></tr>';
+ rows.forEach(function(r){
+  var neg = r.m < 0;
+  var faded = r.k === 'renewal';
+  var col = neg ? '#c0392b' : (faded ? 'var(--muted)' : 'var(--fg)');
+  var tag = neg ? ' <span style="color:#c0392b;font-weight:700">⚠ chargeback</span>' : (faded ? ' <span style="color:var(--muted);font-size:10px">(renewal)</span>' : '');
+  h += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 0;color:'+col+'">'+r.c+tag+'</td><td style="color:'+col+'">'+r.p+'</td><td style="color:var(--muted)">'+r.per+'</td><td style="text-align:right;color:'+col+';font-weight:600">'+fmt(r.m)+'</td></tr>';
+ });
+ h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="3" style="padding-top:6px">TOTAL (net of chargebacks)</td><td style="text-align:right;padding-top:6px">'+fmt(total)+'</td></tr>';
+ h += '</table></div></div>';
+ var ov = document.createElement('div');
+ ov.id = 'dmDetailOverlay';
+ ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+ ov.onclick = function(e){ if(e.target === ov) ov.remove(); };
+ ov.innerHTML = h;
+ document.body.appendChild(ov);
+}
+
 function renderFunnelHealth(){
  // v1.20.2: refresh the DuetBooks snapshot so the $100K tracker + open-pipeline stats
  // in this tab match the Manager Report (DuetBooks = source of truth). Re-renders once
@@ -7436,18 +7479,27 @@ function renderFunnelHealth(){
  // {cat, comm, sales} per category, populated by the payroll import straight from Varicent.
  var catStats = {};
  pe.forEach(function(per){
-  (per.dealMix || []).forEach(function(e){
-   if(!catStats[e.cat]) catStats[e.cat] = {cases:0, totalComm:0};
-   catStats[e.cat].cases += (e.sales || 0);
-   catStats[e.cat].totalComm += (e.comm || 0);
-  });
+  if(per.dealMixDetail){
+   per.dealMixDetail.forEach(function(e){
+    if(!catStats[e.cat]) catStats[e.cat] = {cases:0, totalComm:0};
+    catStats[e.cat].totalComm += (e.m || 0);
+    if(e.k === 'new') catStats[e.cat].cases += 1;
+   });
+  } else if(per.dealMix){
+   per.dealMix.forEach(function(e){
+    if(!catStats[e.cat]) catStats[e.cat] = {cases:0, totalComm:0};
+    catStats[e.cat].cases += (e.sales || 0);
+    catStats[e.cat].totalComm += (e.comm || 0);
+   });
+  }
  });
  h += '<table><tr><th>Category</th><th>Cases</th><th>Avg Commission</th><th>Total Earned</th><th>To Hit Goal: Cases Needed/Mo</th></tr>';
  Object.keys(catStats).forEach(function(cat){
   var s = catStats[cat];
   var avgComm = s.cases > 0 ? s.totalComm / s.cases : 0;
   var casesNeededPerMo = avgComm > 0 ? Math.ceil(monthlyNeeded / avgComm) : 0;
-  h += '<tr><td><b>'+cat+'</b></td><td>'+s.cases+'</td><td>'+fmt(avgComm)+'</td><td>'+fmt(s.totalComm)+'</td>';
+  h += '<tr onclick="showDealMixDetail(\''+cat.replace(/'/g,"\\'")+'\')" style="cursor:pointer" title="Click to see every policy in this category">';
+  h += '<td><b style="color:var(--pri);text-decoration:underline">'+cat+' ›</b></td><td>'+s.cases+'</td><td>'+fmt(avgComm)+'</td><td>'+fmt(s.totalComm)+'</td>';
   h += '<td>'+(casesNeededPerMo > 0 ? casesNeededPerMo+'/mo' : '—')+'</td></tr>';
  });
  h += '</table>';
