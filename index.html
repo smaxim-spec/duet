@@ -313,9 +313,15 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.20.0';
-var APP_BUILD_DATE = '2026-06-04';
+var APP_VERSION = 'v1.20.1';
+var APP_BUILD_DATE = '2026-06-11';
 var CHANGELOG = [
+ {ver:'v1.20.1', date:'2026-06-11', notes:[
+  'FIX: Manager Weekly Report — the $100K target tracker\'s "Open Pipeline" now reads DuetBooks (source of truth) instead of the stale local pl mirror. It was counting already-paid deals as open (e.g. 39 "open" cases when ~24 were already paid in DuetBooks), inflating Open Pipeline Comm and the Adjusted Total.',
+  'Now excludes paid / paid-partial / declined, matching the "All Open Cases" list below it, so the two numbers agree. Read-only — no data in the CRM or DuetBooks is changed.',
+  'Note: this does NOT fix YTD Net Deposited, which is understated because payroll periods after Mar P2 (Apr–Jun) have not been imported from DuetBooks — that needs a payroll import.',
+  'Known: the Funnel Health tab shows the same $100K tracker and still reads the pl mirror — left unchanged for now.'
+ ]},
  {ver:'v1.20.0', date:'2026-06-04', notes:[
   'SAFETY: 🛑 Clobber guard — the app now REFUSES to overwrite a much larger cloud dataset with a much smaller local one (the stale-localStorage wipe that has repeatedly cost leads). If a save would drop the cloud from e.g. 567 leads to 394, it is blocked with a toast telling you to 🔄 Sync from Cloud first. Fails open on network errors; override via window._clobberGuardOverride=true.',
   'NEW: 🏋️ Weekly Review is now multi-week. A ◀ Prev / week dropdown / Next ▶ navigator lets you view any past week — recomputed live from your call history (data goes back to late March).',
@@ -2518,6 +2524,15 @@ function calcCase(c){
  return {origGross:origGross, steveShare:steveShare, partnerGets:partnerGets, fullComm:fullComm};
 }
 
+// Open cases for the $100K target tracker (Manager Report). Reads the live DuetBooks
+// snapshot when available (source of truth, refreshed on every genReport), else the
+// local pl mirror. Excludes paid / paid-partial / declined so it matches the
+// "All Open Cases" section and no longer counts already-paid deals as open pipeline.
+function _openCasesForTarget(){
+ var src = (typeof window !== 'undefined' && window._dbCasesSnapshot && Array.isArray(window._dbCasesSnapshot)) ? window._dbCasesSnapshot : (pl || []);
+ return src.filter(function(c){ return c && c.status !== 'paid' && c.status !== 'paid-partial' && c.status !== 'declined'; });
+}
+
 // Sum net pay including extraDeposits (COE bonuses, etc.) from DuetBooks pay periods
 function calcYtdNet(periods){
  return periods.reduce(function(s,p){
@@ -3899,7 +3914,9 @@ function genReport(weekStartYMDArg){
  // $100K NET TARGET — MOTIVATIONAL TRACKER
  var GOAL = 100000;
  var takeHomeRate = 0.70;
- var allOpenForTarget = pl.filter(function(c){ return c.status !== 'paid'; });
+ // FIX v1.20.1: was `pl.filter(status!=='paid')` — the stale local mirror counted
+ // already-paid deals as open pipeline. Now reads DuetBooks (source of truth).
+ var allOpenForTarget = _openCasesForTarget();
  var pipelineComm = allOpenForTarget.reduce(function(s,c){ return s + calcCase(c).steveShare; }, 0);
  var pipelineNet = pipelineComm * takeHomeRate;
  var adjustedTotal = ytdNet + pipelineNet;
