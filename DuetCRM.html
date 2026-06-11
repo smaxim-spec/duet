@@ -313,9 +313,12 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.20.3';
+var APP_VERSION = 'v1.20.4';
 var APP_BUILD_DATE = '2026-06-11';
 var CHANGELOG = [
+ {ver:'v1.20.4', date:'2026-06-11', notes:[
+  'TWEAK: Deal Mix Advisor "Best ROI" now highlights your biggest earner by total commission (Annuities, 75%) instead of highest per-sale average — a 2-sale category no longer outranks where your money actually comes from. Shows total, % of book, and avg/sale.'
+ ]},
  {ver:'v1.20.3', date:'2026-06-11', notes:[
   'FIX: Deal Mix Advisor now shows your REAL commission by category, sourced from your Varicent statements (stored per pay period as dealMix) — it reconciles exactly to your YTD payout. Previously it read the pl case-mirror, which miscounted (e.g. "39 Life cases"), hid the IUL/Universal category entirely, and understated annuities by half.',
   'True Jan–May mix: Annuities $24,772 (75%), IUL/Universal $3,348, Life $4,232, Banking/CD $800 = $33,152.',
@@ -7448,16 +7451,21 @@ function renderFunnelHealth(){
   h += '<td>'+(casesNeededPerMo > 0 ? casesNeededPerMo+'/mo' : '—')+'</td></tr>';
  });
  h += '</table>';
- var bestCat = '', bestAvg = 0;
+ // v1.20.4: highlight the biggest earner (total commission), not highest per-sale avg —
+ // a 2-sale category shouldn't outrank where your money actually comes from.
+ var bestCat = '', bestTotal = 0, grandComm = 0;
  Object.keys(catStats).forEach(function(cat){
-  var avg = catStats[cat].cases > 0 ? catStats[cat].totalComm / catStats[cat].cases : 0;
-  if(avg > bestAvg){bestAvg = avg; bestCat = cat;}
+  grandComm += catStats[cat].totalComm;
+  if(catStats[cat].totalComm > bestTotal){ bestTotal = catStats[cat].totalComm; bestCat = cat; }
  });
  if(bestCat){
+  var bs = catStats[bestCat];
+  var bestAvg = bs.cases > 0 ? bs.totalComm / bs.cases : 0;
+  var bestPct = grandComm > 0 ? Math.round(bs.totalComm / grandComm * 100) : 0;
+  var neededFromBest = bestAvg > 0 ? Math.ceil(monthlyNeeded / bestAvg) : 0;
   h += '<div style="margin-top:8px;padding:8px;background:var(--gtint);border-radius:var(--radius);font-size:12px">';
-  h += '<b style="color:var(--dgrn)">Best ROI:</b> '+bestCat+' — averaging '+fmt(bestAvg)+' per case. ';
-  var neededFromBest = Math.ceil(monthlyNeeded / bestAvg);
-  h += 'Need just <b>'+neededFromBest+'</b> per month from this category alone to hit your goal.';
+  h += '<b style="color:var(--dgrn)">Best ROI:</b> '+bestCat+' — your biggest book at '+fmt(bs.totalComm)+' ('+bestPct+'% of commission), ~'+fmt(bestAvg)+'/sale. ';
+  h += 'About <b>'+neededFromBest+'</b>/month here keeps you on pace for your goal.';
   h += '</div>';
  }
  h += '</div>';
