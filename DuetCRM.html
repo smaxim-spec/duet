@@ -318,7 +318,7 @@ var APP_BUILD_DATE = '2026-06-11';
 var CHANGELOG = [
  {ver:'v1.20.7', date:'2026-06-11', notes:[
   'NEW: 🌅 Build My Day — one button builds your ranked daily dial list from the call cadence (callbacks → quoted → warm → new → attempting → nurture), capped at 50, and pushes it straight to Calley. No more cherry-picking 580 leads — dial top to bottom.',
-  'CADENCE: max 5 touches per stage. After 5: Attempting → Lost; Connected/Discovery/Quoted → Nurturing. Meeting Set removed from daily follow-ups (no-show recovery surfaces it in Build My Day instead). Daily cap configurable (localStorage dailyDialCap, default 50).'
+  'CADENCE: max 5 touches per stage. After 5: Attempting → Lost; Connected/Discovery/Quoted → Nurturing. Meeting Set removed from daily follow-ups (no-show recovery surfaces it in Build My Day instead). Daily cap configurable (localStorage dailyDialCap, default 80 to clear the backlog).'
  ]},
  {ver:'v1.20.6', date:'2026-06-11', notes:[
   'TWEAK: Manager Report "Activity for This Week" now collapses the Lost leads into ONE clickable summary row (📉 Lost — N this week, with a per-reason breakdown) instead of a separate blank row per name. Tap it to see all the names grouped by loss reason. Wins and policy changes still show as full detail rows.'
@@ -1893,7 +1893,7 @@ function calleyResetAndPush(){
 }
 
 // ═══ BUILD MY DAY (v1.20.7) — cadence-driven daily dial queue, auto-pushed to Calley ═══
-function _dailyDialCap(){ return parseInt(localStorage.getItem('dailyDialCap')||'50',10) || 50; }
+function _dailyDialCap(){ return parseInt(localStorage.getItem('dailyDialCap')||'80',10) || 80; }
 function _buildDayQueue(){
  var todayISO = toYMD(new Date());
  var q = [];
