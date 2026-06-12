@@ -313,9 +313,13 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.20.6';
+var APP_VERSION = 'v1.20.7';
 var APP_BUILD_DATE = '2026-06-11';
 var CHANGELOG = [
+ {ver:'v1.20.7', date:'2026-06-11', notes:[
+  'NEW: 🌅 Build My Day — one button builds your ranked daily dial list from the call cadence (callbacks → quoted → warm → new → attempting → nurture), capped at 50, and pushes it straight to Calley. No more cherry-picking 580 leads — dial top to bottom.',
+  'CADENCE: max 5 touches per stage. After 5: Attempting → Lost; Connected/Discovery/Quoted → Nurturing. Meeting Set removed from daily follow-ups (no-show recovery surfaces it in Build My Day instead). Daily cap configurable (localStorage dailyDialCap, default 50).'
+ ]},
  {ver:'v1.20.6', date:'2026-06-11', notes:[
   'TWEAK: Manager Report "Activity for This Week" now collapses the Lost leads into ONE clickable summary row (📉 Lost — N this week, with a per-reason breakdown) instead of a separate blank row per name. Tap it to see all the names grouped by loss reason. Wins and policy changes still show as full detail rows.'
  ]},
@@ -1886,6 +1890,68 @@ function calleyResetAndPush(){
  // Re-render to pick up new counts, then auto-push
  renderCRM();
  setTimeout(function(){ calleyPushFiltered(); }, 1000);
+}
+
+// ═══ BUILD MY DAY (v1.20.7) — cadence-driven daily dial queue, auto-pushed to Calley ═══
+function _dailyDialCap(){ return parseInt(localStorage.getItem('dailyDialCap')||'50',10) || 50; }
+function _buildDayQueue(){
+ var todayISO = toYMD(new Date());
+ var q = [];
+ (leads||[]).forEach(function(l){
+  if(!l || l.stage==='won' || l.stage==='lost' || l.stage==='app_submitted') return;
+  var ph=(l.phone||'').replace(/\D/g,''); if(ph.length<10) return;
+  var cl=l.callLog||[]; var lastOut = cl.length ? (cl[cl.length-1].outcome||'') : '';
+  if(['Bad #','Bad Number','Wrong Number'].indexOf(lastOut)>=0) return;
+  var pri=0, reason='';
+  if(l.callbackDate && l.callbackDate <= todayISO){ pri=1; reason='☎️ Callback'; }
+  else if(l.stage==='quoted'){ var fq=getFollowUpStatus(l); if(fq && fq.due){ pri=2; reason='💲 Quoted'; } }
+  else if(l.stage==='meeting_set' && l.meetingDate && l.meetingDate < todayISO){ pri=2; reason='📅 No-show follow-up'; }
+  else if(l.stage==='connected' || l.stage==='discovery'){ var fw=getFollowUpStatus(l); if(fw && fw.due){ pri=3; reason='🤝 Warm follow-up'; } }
+  else if(l.stage==='new'){ pri=4; reason='🆕 New (speed-to-lead)'; }
+  else if(l.stage==='attempting'){ var cad=getCallCadenceStage(l); if(cad && ['morning','afternoon','evening'].indexOf(cad.stage)>=0){ pri=5; reason='📞 Attempting'; } }
+  else if(l.stage==='incubator'){ var last=cl.length?cl[cl.length-1].date:(l.stageEnteredDate||l.created||''); var days=last?(Date.now()-new Date(last).getTime())/86400000:999; if(days>=30){ pri=6; reason='🌱 Nurture (30d)'; } }
+  if(pri>0) q.push({id:l.id, pri:pri, reason:reason, calls:cl.length, created:l.created||''});
+ });
+ q.sort(function(a,b){ return a.pri-b.pri || a.calls-b.calls || (b.created).localeCompare(a.created); });
+ return q;
+}
+function buildMyDay(){
+ var q=_buildDayQueue(); var cap=_dailyDialCap(); var top=q.slice(0,cap);
+ var byReason={}; top.forEach(function(x){ byReason[x.reason]=(byReason[x.reason]||0)+1; });
+ var ORD=['☎️ Callback','💲 Quoted','📅 No-show follow-up','🤝 Warm follow-up','🆕 New (speed-to-lead)','📞 Attempting','🌱 Nurture (30d)'];
+ window._dayQueueIds = top.map(function(x){return x.id;});
+ var h='<div style="background:var(--bg);border-radius:12px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5)">';
+ h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)"><h3 style="margin:0;color:var(--pri)">🌅 Build My Day</h3><button onclick="document.getElementById(\'bmdOverlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button></div>';
+ h+='<div style="padding:16px 18px">';
+ h+='<div style="font-size:14px;margin-bottom:12px"><b style="font-size:20px;color:var(--pri)">'+top.length+'</b> leads to dial today'+(q.length>top.length?' <span style="color:var(--muted);font-size:12px">(of '+q.length+' due — capped at '+cap+')</span>':'')+'</div>';
+ h+='<table style="width:100%;font-size:13px">';
+ ORD.forEach(function(r){ if(byReason[r]) h+='<tr><td style="padding:3px 0">'+r+'</td><td style="text-align:right;font-weight:700">'+byReason[r]+'</td></tr>'; });
+ h+='</table>';
+ h+='<div style="font-size:11px;color:var(--muted);margin:12px 0;line-height:1.5">📋 Ranked hottest-first. Run 🗑️ Clean Calley first to clear yesterday\'s leftovers, then push today\'s list.</div>';
+ if(top.length>0) h+='<button onclick="_pushDayToCalley()" class="btn btn-pri" style="width:100%;padding:11px;font-weight:700;font-size:14px">📱 Push '+top.length+' to Calley</button>';
+ else h+='<div style="text-align:center;color:var(--muted);padding:10px">Nothing due today — you\'re caught up! 🎉</div>';
+ h+='</div></div>';
+ var ov=document.createElement('div'); ov.id='bmdOverlay';
+ ov.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+ ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
+ ov.innerHTML=h; document.body.appendChild(ov);
+}
+function _pushDayToCalley(){
+ var ids=window._dayQueueIds||[]; if(!ids.length){ showToast('Nothing to push',3000); return; }
+ var ov=document.getElementById('bmdOverlay'); if(ov) ov.remove();
+ var listId=localStorage.getItem('calley_list_id')||CALLEY_DEFAULT_LIST_ID;
+ var pushed=0,failed=0;
+ showToast('🌅 Building your day — pushing '+ids.length+' to Calley…',5000);
+ function next(i){
+  if(i>=ids.length){ showToast('✅ Your day is ready: '+pushed+' in Calley'+(failed?' ('+failed+' failed)':'')+'. Dial top to bottom! 💪',7000); renderCRM(); return; }
+  var lead=leads.find(function(l){return l.id===ids[i];});
+  if(!lead){ next(i+1); return; }
+  var notes=[lead.interest,lead.source,lead.agent?'Agent: '+lead.agent:''].filter(Boolean).join(' | ');
+  calleyAPI('POST','PushPro',{Mobile:lead.phone,ListId:listId,Notes:notes,Name:lead.name}).then(function(){
+   lead.calleyPushed=true; lead.calleyPushedDate=new Date().toISOString(); pushed++; saveLeads(); next(i+1);
+  }).catch(function(){ failed++; next(i+1); });
+ }
+ next(0);
 }
 
 // === Clean Calley — v1.19.1 ===
@@ -4902,7 +4968,7 @@ function getCallCadenceStage(lead){
  if(spokeEntries.length > 0) return null; // stage managed manually after contact
 
  // 15-call cadence: exhausted
- if(totalCalls >= 10) return {stage:'exhausted',label:'10/10 Attempts — Auto-Lost',badge:'cb-day7'};
+ if(totalCalls >= 5) return {stage:'exhausted',label:'5/5 Attempts — Auto-Lost',badge:'cb-day7'};
 
  // Group calls by date
  var callDates = {};
@@ -4943,28 +5009,28 @@ function getCallCadenceStage(lead){
   var lastCallDate = log[log.length-1].date.substring(0,10);
   var daysSinceLast = Math.floor((now - new Date(lastCallDate+'T00:00:00')) / 86400000);
   if(daysSinceLast < waitDays){
-   return {stage:'waiting',label:'Attempt '+totalCalls+'/10 — Wait '+(waitDays-daysSinceLast)+' day'+(waitDays-daysSinceLast>1?'s':'')+' before next round',badge:'cb-nextday'};
+   return {stage:'waiting',label:'Attempt '+totalCalls+'/5 — Wait '+(waitDays-daysSinceLast)+' day'+(waitDays-daysSinceLast>1?'s':'')+' before next round',badge:'cb-nextday'};
   }
   // Ready for next round
-  if(!hasMorning) return {stage:'morning',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Morning (9-10am)',badge:'cb-morning'};
-  if(!hasAfternoon) return {stage:'afternoon',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Afternoon (1-2pm)',badge:'cb-afternoon'};
-  if(!hasEvening) return {stage:'evening',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Evening (5:30-6:30pm)',badge:'cb-evening'};
-  return {stage:'waiting',label:'Attempt '+totalCalls+'/10 — Done today, next round soon',badge:'cb-nextday'};
+  if(!hasMorning) return {stage:'morning',label:'Attempt '+(totalCalls+1)+'/5 — '+roundLabel+' Morning (9-10am)',badge:'cb-morning'};
+  if(!hasAfternoon) return {stage:'afternoon',label:'Attempt '+(totalCalls+1)+'/5 — '+roundLabel+' Afternoon (1-2pm)',badge:'cb-afternoon'};
+  if(!hasEvening) return {stage:'evening',label:'Attempt '+(totalCalls+1)+'/5 — '+roundLabel+' Evening (5:30-6:30pm)',badge:'cb-evening'};
+  return {stage:'waiting',label:'Attempt '+totalCalls+'/5 — Done today, next round soon',badge:'cb-nextday'};
  }
 
  // Still have calls to make today
- if(!hasMorning) return {stage:'morning',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Morning (9-10am)',badge:'cb-morning'};
- if(!hasAfternoon) return {stage:'afternoon',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Afternoon (1-2pm)',badge:'cb-afternoon'};
- if(!hasEvening) return {stage:'evening',label:'Attempt '+(totalCalls+1)+'/10 — '+roundLabel+' Evening (5:30-6:30pm)',badge:'cb-evening'};
- return {stage:'waiting',label:'Attempt '+totalCalls+'/10 — Done today',badge:'cb-nextday'};
+ if(!hasMorning) return {stage:'morning',label:'Attempt '+(totalCalls+1)+'/5 — '+roundLabel+' Morning (9-10am)',badge:'cb-morning'};
+ if(!hasAfternoon) return {stage:'afternoon',label:'Attempt '+(totalCalls+1)+'/5 — '+roundLabel+' Afternoon (1-2pm)',badge:'cb-afternoon'};
+ if(!hasEvening) return {stage:'evening',label:'Attempt '+(totalCalls+1)+'/5 — '+roundLabel+' Evening (5:30-6:30pm)',badge:'cb-evening'};
+ return {stage:'waiting',label:'Attempt '+totalCalls+'/5 — Done today',badge:'cb-nextday'};
 }
 
 // Follow-up cadence config: {interval in days, max follow-ups}
 var FOLLOW_UP_CADENCE = {
  connected: {interval:2, max:5},
- discovery: {interval:3, max:5},
- meeting_set: {interval:3, max:6},
- quoted: {interval:2, max:6}
+ discovery: {interval:2, max:5},
+ quoted: {interval:2, max:5}
+ // meeting_set intentionally omitted — handled by no-show recovery, not daily follow-ups
 };
 
 function getFollowUpStatus(lead){
@@ -5148,11 +5214,11 @@ function logCall(leadId, outcome, block, notes){
   if(!anySpoke){
    lead.stage = 'lost';
    lead.lostReason = 'No Contact After Max Attempts';
-   showToast(lead.name + ' auto-marked Lost — 10 attempts with no contact.', 6000);
+   showToast(lead.name + ' auto-marked Lost — 5 attempts with no contact.', 6000);
   }
  }
  // Auto-nurture on max follow-ups for post-contact stages
- var followUpCadence = {connected:5, discovery:5, meeting_set:6, quoted:6};
+ var followUpCadence = {connected:5, discovery:5, quoted:5}; // v1.20.7: max 5 all, meeting_set out
  if(followUpCadence[lead.stage]){
   var sinceStage = (lead.callLog||[]).filter(function(c){return c.date >= (lead.stageEnteredDate||lead.created)}).length;
   if(sinceStage >= followUpCadence[lead.stage]){
@@ -8207,6 +8273,7 @@ function renderCRM(){
  }
  h += '<button class="btn btn-sm '+(crmView==='queue'?'btn-pri':'btn-outline')+'" onclick="crmView=\'queue\';renderCRM()">Call Queue</button>';
  h += '<button class="btn btn-sm '+(crmView==='all'?'btn-pri':'btn-outline')+'" onclick="crmView=\'all\';renderCRM()">All Leads</button>';
+ h += '<button class="btn btn-sm" onclick="buildMyDay()" style="background:#1D9E75;color:#fff;border:none;font-weight:700" title="Build today\'s ranked dial list from your cadence and push it to Calley">\uD83C\uDF05 Build My Day</button>';
  h += '<button class="btn btn-sm '+(crmView==='bulk'?'btn-amb':'btn-outline')+'" onclick="crmView=\'bulk\';renderCRM()">+ Bulk Add</button>';
  h += '<button class="btn btn-sm '+(crmView==='schedule'?'btn-pri':'btn-outline')+'" onclick="crmView=\'schedule\';renderCRM()">Schedule</button>';
  h += '<button class="btn btn-sm '+(crmView==='agents'?'btn-pri':'btn-outline')+'" onclick="crmView=\'agents\';renderCRM()">Agents</button>';
