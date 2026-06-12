@@ -313,9 +313,12 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.20.5';
+var APP_VERSION = 'v1.20.6';
 var APP_BUILD_DATE = '2026-06-11';
 var CHANGELOG = [
+ {ver:'v1.20.6', date:'2026-06-11', notes:[
+  'TWEAK: Manager Report "Activity for This Week" now collapses the Lost leads into ONE clickable summary row (📉 Lost — N this week, with a per-reason breakdown) instead of a separate blank row per name. Tap it to see all the names grouped by loss reason. Wins and policy changes still show as full detail rows.'
+ ]},
  {ver:'v1.20.5', date:'2026-06-11', notes:[
   'NEW: Deal Mix Advisor rows are now clickable — tap a category to see every policy behind it (client, product, period, commission), pulled from your Varicent statements. Chargebacks/reversals are flagged in red and renewals are dimmed, so the net commission makes sense (e.g. Life shows ~$7.7K of new sales minus a $3,501 Helberts Tambley chargeback = $4,232 net).'
  ]},
@@ -3819,6 +3822,29 @@ var qbIncludeReversals = false;
 // Week selection state (for past-week reports). Empty = current week.
 var reportWeekStart = '';
 
+// v1.20.6: drill-down for the collapsed "Lost this week" summary row — names grouped by reason.
+function showLostThisWeek(){
+ var list = window._lostThisWeek || [];
+ var byReason = {};
+ list.forEach(function(x){ var r = x.reason || 'Not specified'; (byReason[r] = byReason[r] || []).push(x.name); });
+ var h = '<div style="background:var(--bg);border-radius:12px;max-width:520px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5)">';
+ h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">';
+ h += '<h3 style="margin:0;color:#c0392b">📉 Lost This Week ('+list.length+')</h3>';
+ h += '<button onclick="document.getElementById(\'lostWeekOverlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button></div>';
+ h += '<div style="padding:14px 18px">';
+ if(list.length === 0){ h += '<p style="color:var(--muted);font-size:13px">None this week.</p>'; }
+ Object.keys(byReason).sort(function(a,b){ return byReason[b].length - byReason[a].length; }).forEach(function(r){
+  h += '<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:3px">'+escapeHtml(r)+' <span style="color:var(--muted)">('+byReason[r].length+')</span></div>';
+  h += '<div style="font-size:12px;color:var(--muted);line-height:1.6">'+byReason[r].map(function(n){ return escapeHtml(n); }).join(', ')+'</div></div>';
+ });
+ h += '</div></div>';
+ var ov = document.createElement('div'); ov.id = 'lostWeekOverlay';
+ ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+ ov.onclick = function(e){ if(e.target === ov) ov.remove(); };
+ ov.innerHTML = h;
+ document.body.appendChild(ov);
+}
+
 function genReport(weekStartYMDArg){
  // Track selected week so the dropdown stays in sync after re-render
  if(weekStartYMDArg !== undefined) reportWeekStart = weekStartYMDArg || '';
@@ -4088,8 +4114,13 @@ function genReport(weekStartYMDArg){
  if(_activityEntries.length === 0){
   h += '<p style="color:var(--muted);font-size:12px">No activity this week.</p>';
  } else {
+  // v1.20.6: collapse "Lost-only" rows (name + reason, everything else "—") into ONE
+  // clickable summary instead of a row per name. Won / policy / decline rows stay detailed.
+  var _isLostOnly = function(e){ return e.changes.length > 0 && e.changes.every(function(c){ return c.indexOf('📉 Lost') === 0; }); };
+  var _lostOnly = _activityEntries.filter(_isLostOnly);
+  window._lostThisWeek = _lostOnly.map(function(e){ return {name: e.lead.name, reason: e.lead.lostReason || 'Not specified'}; });
   h += '<table><tr><th>Client</th><th>Premium</th><th>Product</th><th>Agent</th><th>Opportunity</th><th>Policy</th><th>Change</th><th>Notes</th></tr>';
-  _activityEntries.forEach(function(e){
+  _activityEntries.filter(function(e){ return !_isLostOnly(e); }).forEach(function(e){
    var l = e.lead;
    var oppLbl = CRM_STAGE_LABELS[l.stage] || l.stage;
    var psLbl = l.policyStatus ? (POLICY_STATUS_LABELS[l.policyStatus] || l.policyStatus) : '—';
@@ -4116,6 +4147,15 @@ function genReport(weekStartYMDArg){
    h += '<td style="font-size:11px;color:var(--muted)">'+notesCell+'</td>';
    h += '</tr>';
   });
+  if(_lostOnly.length > 0){
+   var _byReason = {};
+   _lostOnly.forEach(function(e){ var r = e.lead.lostReason || 'Not specified'; _byReason[r] = (_byReason[r]||0)+1; });
+   var _rsum = Object.keys(_byReason).sort(function(a,b){ return _byReason[b]-_byReason[a]; }).map(function(r){ return r+' ('+_byReason[r]+')'; }).join('  ·  ');
+   h += '<tr onclick="showLostThisWeek()" style="cursor:pointer" title="Click to see every lost lead this week">';
+   h += '<td><b style="color:#c0392b;text-decoration:underline">📉 Lost — '+_lostOnly.length+' this week ›</b></td><td>—</td><td>—</td><td>—</td>';
+   h += '<td><span class="badge" style="background:#c0392b;color:#fff;font-size:9px;padding:1px 5px">Lost</span></td><td>—</td>';
+   h += '<td colspan="2" style="font-size:10px;color:var(--muted)">'+_rsum+'</td></tr>';
+  }
   h += '</table>';
  }
  h += '<p style="font-size:11px;color:var(--muted);margin-top:6px">';
