@@ -148,6 +148,9 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 .progress-bar{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:4px}
 .progress-fill{height:100%;border-radius:4px;transition:width .3s}
 .toast{position:fixed;top:20px;right:20px;background:#1a1a1a;color:#fff;padding:14px 20px;border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,.25);z-index:9999;max-width:400px;font-size:12px;animation:slideIn .12s ease-out}
+/* v1.21.0: callback date picker sits on a dark popup — make the calendar glyph white so it's visible */
+.toast input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.95;cursor:pointer}
+body.dark-mode .cb-date::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.95;cursor:pointer}
 @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 .qb-fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:var(--pri);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:9000;transition:transform .2s}
 .qb-fab:hover{transform:scale(1.1)}
@@ -313,9 +316,31 @@ label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(-
 // ══════════════════════════════════
 // VERSION & CHANGELOG
 // ══════════════════════════════════
-var APP_VERSION = 'v1.20.7';
-var APP_BUILD_DATE = '2026-06-11';
+var APP_VERSION = 'v1.21.2';
+var APP_BUILD_DATE = '2026-06-16';
 var CHANGELOG = [
+ {ver:'v1.21.2', date:'2026-06-24', notes:[
+  'NEW: "New Opportunity" is now a guided modal. When you reopen a client for another policy you choose, per field, whether to keep the prior value or enter a new one — premium (Use existing $X vs Enter new amount), product (existing vs pick new), and split agent (existing vs change). Defaults keep what carried over; the prior deal\'s full economics (product/premium/agent/policy status) are archived to history, and the stale Policy badge is cleared for the fresh opportunity.',
+  'FIX: a rewrite / 2nd policy could silently fail to reach DuetBooks. The Won→Books dedupe treated ANY non-paid case of the same client+product as a live duplicate, so a rewrite that matched a prior DECLINED/withdrawn (or paid-partial) policy was dropped with no error — policyStatus showed "submitted" but the case never appeared in Books. Now only a live in-flight case (pending/submitted/approved/issued) blocks the push; declined/paid/paid-partial let the new case through.'
+ ]},
+ {ver:'v1.21.1', date:'2026-06-16', notes:[
+  'FIX: Build My Day (and Push to Calley) were silently sending leads to a DEAD Calley list. A stale calley_list_id in localStorage pointed at a deleted list — Calley returned HTTP 200, so the CRM marked all leads "pushed", but they never appeared in the real list. An 80-lead push on 6/16 went into the void this way.',
+  'Both push paths now call resolveCalleyListId() first — it fetches your live Calley lists, keeps the stored id only if it is a real list, otherwise self-heals to the correct list and repairs localStorage. Also runs once on load. Network/token failure falls back to the previous behavior (no worse than before).'
+ ]},
+ {ver:'v1.21.0', date:'2026-06-12', notes:[
+  'FIX: setting a callback via the manual mm/dd/yyyy date picker silently did nothing — the date never saved to the lead. Cause: the handler dismissed the popup (removing the date field) BEFORE reading the picked date, so it always read null and bailed out. Now reads the value first. The quick buttons (1 Week … 3 Months) were unaffected.',
+  'UI: the callback date-picker calendar icon is now white so it\'s visible on the dark popup.'
+ ]},
+ {ver:'v1.20.9', date:'2026-06-12', notes:[
+  'NEW: Calley Call Notes now flow into the lead. Whatever you type in Calley\'s "Call Note" field is mirrored into the lead\'s main Notes field (📱 dated), not just buried in the call-history timeline.',
+  'LOST: marking a lead Lost in Calley with a Call Note now records that note as the lead\'s loss note (lossNotes). It shows in the Manager Report Lost row and in the "Lost This Week" drill-down next to each name — so you can see WHY each lead was lost, while the lostReason category (for the breakdown counts) stays clean.',
+  'FIX: duplicate call logging. The real-time Cloudflare worker and the in-app webhook sync were each logging the same call. The sync now dedups across both paths — it upgrades the worker\'s real-time stub in place (rich note + duration) instead of adding a second row, and sweeps up pre-existing duplicates.',
+  'SYNC: the Calley reconciliation now runs every 60s alongside auto-pull (v1.20.8), so notes, loss notes, stage moves and de-duplication apply within a minute — no manual 🔄 Sync Calley needed.'
+ ]},
+ {ver:'v1.20.8', date:'2026-06-12', notes:[
+  'NEW: Auto-pull from cloud. Calley dispositions arrive via the Cloudflare webhook, which writes leads straight to Firebase — an open CRM tab used to need a manual 🔄 Sync to see them (and a later local save could clobber the webhook write). The tab now re-pulls cloud truth every 60s and the instant you switch back to it, so webhook call logs appear on their own within a minute.',
+  'SAFETY: auto-pull is suppressed while a local save is pending/in-flight, while a modal dialog is open, or while you are typing in a field — so it never reverts an edit in progress. Manual 🔄 Sync from Cloud is unchanged.'
+ ]},
  {ver:'v1.20.7', date:'2026-06-11', notes:[
   'NEW: 🌅 Build My Day — one button builds your ranked daily dial list from the call cadence (callbacks → quoted → warm → new → attempting → nurture), capped at 50, and pushes it straight to Calley. No more cherry-picking 580 leads — dial top to bottom.',
   'CADENCE: max 5 touches per stage. After 5: Attempting → Lost; Connected/Discovery/Quoted → Nurturing. Meeting Set removed from daily follow-ups (no-show recovery surfaces it in Build My Day instead). Daily cap configurable (localStorage dailyDialCap, default 80 to clear the backlog).'
@@ -796,6 +821,44 @@ function forceCloudSync(opts){
 setTimeout(function(){
  forceCloudSync({silent: true});
 }, 2000);
+
+// ── AUTO-PULL (v1.20.8) ──
+// Calley dispositions arrive via the Cloudflare webhook, which writes leads
+// straight to Firebase. An open CRM tab won't see them until it re-pulls, and
+// worse — a later local save could clobber the webhook's write. So we re-pull
+// cloud truth on a timer and whenever the tab regains focus.
+//
+// Guard: never auto-pull while a local save is pending or in-flight
+// (window._fbPendingKeys non-empty or _fbSyncing) — that would revert the
+// user's just-made edit. We only pull when local and cloud are quiescent.
+function autoPullFromCloud(reason){
+ if(_fbSyncing) return;                                   // a push is mid-flight
+ if(_fbSyncTimer) return;                                 // a push is queued (debounce pending)
+ if(window._fbPendingKeys && Object.keys(window._fbPendingKeys).length) return; // unsaved local edits
+ // user mid-edit in a dialog (modals toggle display; offsetParent is null when hidden)
+ var openModal = [].some.call(
+  document.querySelectorAll('.qb-modal, .fb-modal, .settings-modal, .modal'),
+  function(m){ return m.offsetParent !== null; }
+ );
+ if(openModal) return;
+ // user actively typing in any input/textarea/select
+ var ae = document.activeElement;
+ if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+ forceCloudSync({silent: true}).then(function(){
+  try { if(typeof updateFbStatus==='function') updateFbStatus('synced'); } catch(e){}
+  // v1.20.9: reconcile Calley webhook calls into leads on the same cadence —
+  // dedups/upgrades the worker's real-time stubs, mirrors call notes into the
+  // lead's main Notes, and records the note as lossNotes on Lost.
+  try { if(typeof syncCalleyFromWebhook==='function') syncCalleyFromWebhook(true); } catch(e){}
+ });
+}
+// Re-pull every 60s so webhook dispositions appear within a minute.
+setInterval(function(){ autoPullFromCloud('interval'); }, 60000);
+// Re-pull the moment you switch back to the tab (e.g. after a Calley session).
+window.addEventListener('visibilitychange', function(){
+ if(document.visibilityState === 'visible') autoPullFromCloud('focus');
+});
+window.addEventListener('focus', function(){ autoPullFromCloud('focus'); });
 
 function debouncedFirebaseSync(key){
  if(_fbSuppressSync) return;
@@ -1766,6 +1829,33 @@ function calleyTestConnection(){
  });
 }
 
+// v1.21.1: validate the Calley list id against the LIVE account before pushing.
+// A stale localStorage calley_list_id silently black-holed an 80-lead push on
+// 6/16 — it pointed at a deleted list, Calley returned HTTP 200, and the leads
+// went nowhere while the CRM marked them "pushed". This fetches the real lists
+// and self-heals: if the stored id isn't a real list, fall back to the default
+// constant (or the single/first real list) and repair localStorage. Any
+// network/token failure keeps stored || default (no worse than before).
+function resolveCalleyListId(){
+ var stored = localStorage.getItem('calley_list_id') || '';
+ var fallback = stored || CALLEY_DEFAULT_LIST_ID;
+ return calleyAPI('GET','CallingLists').then(function(lists){
+  if(!Array.isArray(lists) || !lists.length) return fallback;
+  var ids = lists.map(function(l){ return (l.listId||l.id||'').toString(); }).filter(Boolean);
+  if(stored && ids.indexOf(stored) >= 0) return stored;            // stored id is a real list — keep it
+  var pick = (ids.indexOf(CALLEY_DEFAULT_LIST_ID) >= 0) ? CALLEY_DEFAULT_LIST_ID : ids[0];
+  if(pick){
+   localStorage.setItem('calley_list_id', pick);
+   if(stored && stored !== pick) console.warn('[calley] repaired stale list id '+stored+' → '+pick);
+  }
+  return pick || fallback;
+ }).catch(function(){ return fallback; });
+}
+// Proactively repair a stale list id on load (silent; no-op without a token).
+if(typeof window !== 'undefined'){
+ setTimeout(function(){ try { if(getCalleyToken()) resolveCalleyListId(); } catch(e){} }, 5000);
+}
+
 function calleyPushLead(leadId){
  var lead = leads.find(function(l){return l.id === leadId});
  if(!lead){ showToast('Lead not found', 3000); return; }
@@ -1808,7 +1898,7 @@ function calleyPushFiltered(){
   return bCreated.localeCompare(aCreated);
  });
 
- var listId = localStorage.getItem('calley_list_id') || CALLEY_DEFAULT_LIST_ID;
+ var listId = localStorage.getItem('calley_list_id') || CALLEY_DEFAULT_LIST_ID; // provisional; revalidated against live Calley below
  var pushed = 0;
  var failed = 0;
  var total = pushLeads.length;
@@ -1850,7 +1940,7 @@ function calleyPushFiltered(){
    pushNext(idx+1);
   });
  }
- pushNext(0);
+ resolveCalleyListId().then(function(rid){ listId=rid; pushNext(0); });
 }
 
 function calleyResetAndPush(){
@@ -1939,9 +2029,9 @@ function buildMyDay(){
 function _pushDayToCalley(){
  var ids=window._dayQueueIds||[]; if(!ids.length){ showToast('Nothing to push',3000); return; }
  var ov=document.getElementById('bmdOverlay'); if(ov) ov.remove();
- var listId=localStorage.getItem('calley_list_id')||CALLEY_DEFAULT_LIST_ID;
+ var listId=localStorage.getItem('calley_list_id')||CALLEY_DEFAULT_LIST_ID; // provisional; revalidated against live Calley below
  var pushed=0,failed=0;
- showToast('🌅 Building your day — pushing '+ids.length+' to Calley…',5000);
+ showToast('🌅 Building your day — verifying Calley list & pushing '+ids.length+'…',5000);
  function next(i){
   if(i>=ids.length){ showToast('✅ Your day is ready: '+pushed+' in Calley'+(failed?' ('+failed+' failed)':'')+'. Dial top to bottom! 💪',7000); renderCRM(); return; }
   var lead=leads.find(function(l){return l.id===ids[i];});
@@ -1951,7 +2041,7 @@ function _pushDayToCalley(){
    lead.calleyPushed=true; lead.calleyPushedDate=new Date().toISOString(); pushed++; saveLeads(); next(i+1);
   }).catch(function(){ failed++; next(i+1); });
  }
- next(0);
+ resolveCalleyListId().then(function(rid){ listId=rid; next(0); });
 }
 
 // === Clean Calley — v1.19.1 ===
@@ -2281,7 +2371,23 @@ function syncCalleyFromWebhook(silent){
   .then(function(logs){
    if(!logs){ if(!silent) showToast('No webhook log entries found', 3000); return; }
    var keys = Object.keys(logs);
-   var imported = 0, skipped = 0, autoCreated = 0, autoCreatedNames = [], stageMoves = [];
+   var imported = 0, skipped = 0, autoCreated = 0, autoCreatedNames = [], stageMoves = [], cleaned = 0;
+   // v1.20.9: collapse historical duplicate Calley rows. The Cloudflare worker
+   // logs each call in real time (source 'calley-webhook', no calleyId) and this
+   // sync also logs it (with calleyId) — older records have both. Drop the worker
+   // stub when a fully-synced calleyId row exists for the same call time. Only
+   // touches Calley-sourced rows, never manual notes.
+   leads.forEach(function(l){
+    if(!l || !Array.isArray(l.callLog) || l.callLog.length < 2) return;
+    var syncedDates = {};
+    l.callLog.forEach(function(c){ if(c && c.calleyId && c.source === 'calley-webhook') syncedDates[c.date] = true; });
+    var before = l.callLog.length;
+    l.callLog = l.callLog.filter(function(c){
+     if(c && c.source === 'calley-webhook' && !c.calleyId && syncedDates[c.date]) return false;
+     return true;
+    });
+    cleaned += (before - l.callLog.length);
+   });
    // v1.19.3: track next free lead.id for auto-create
    var nextLeadId = leads.reduce(function(m, l){ return Math.max(m, (l && l.id) || 0); }, 0) + 1;
    keys.forEach(function(fbKey){
@@ -2357,24 +2463,53 @@ function syncCalleyFromWebhook(silent){
      autoCreated++;
      autoCreatedNames.push(rawName);
     }
-    // Dedup — skip if this Firebase key already in the lead's callLog
-    if((lead.callLog||[]).some(function(c){ return c && c.calleyId === fbKey; })){ skipped++; return; }
+    // Dedup / de-duplicate across BOTH write paths (v1.20.9):
+    //  • calleyId === fbKey → this exact webhook already imported by a prior sync
+    //  • a Cloudflare-worker stub (source 'calley-webhook', no calleyId) at the
+    //    same call time → the worker logged this call in real time. Upgrade it in
+    //    place to the rich format + stamp the dedup id instead of adding a 2nd row.
     if(!lead.callLog) lead.callLog = [];
-    lead.callLog.push({
-     date: isoDate,
-     outcome: outcome,
-     block: 'calley',
-     notes: '📱 Calley sync — ' + duration + (callNote ? (' — '+callNote) : ''),
-     calleyId: fbKey
+    var noteText = '📱 Calley sync — ' + duration + (callNote ? (' — '+callNote) : '');
+    var existing = null, alreadySynced = false;
+    lead.callLog.forEach(function(c){
+     if(!c) return;
+     if(c.calleyId === fbKey){ existing = c; alreadySynced = true; }
+     else if(!existing && !c.calleyId && c.source === 'calley-webhook' && c.date === isoDate){ existing = c; }
     });
+    if(alreadySynced){ skipped++; return; }   // this call is fully synced already
+    if(existing){
+     // upgrade the worker's real-time stub → rich, deduped entry
+     existing.calleyId = fbKey;
+     existing.outcome = outcome;
+     existing.block = 'calley';
+     existing.notes = noteText;
+    } else {
+     lead.callLog.push({
+      date: isoDate,
+      outcome: outcome,
+      block: 'calley',
+      notes: noteText,
+      calleyId: fbKey,
+      source: 'calley-webhook'
+     });
+    }
     imported++;
+    // Fix #1 — mirror the typed Calley Call Note into the lead's main Notes field
+    // so it's front-and-center, not buried in the call-history timeline.
+    if(callNote && callNote.trim()){
+     var _cn = callNote.trim();
+     var _nx = lead.notes || '';
+     if(_nx.indexOf(_cn) === -1){
+      lead.notes = (_nx ? _nx + '\n' : '') + '📱 ' + isoDate.substring(0,10) + ': ' + _cn;
+     }
+    }
     // Apply stage transitions (same logic as legacy API sync)
     var prevStage = lead.stage;
     if(outcome === 'Connected' && (lead.stage === 'new' || lead.stage === 'attempting')) lead.stage = 'connected';
     if(outcome === 'Discovery' && (lead.stage === 'new' || lead.stage === 'attempting' || lead.stage === 'connected')) lead.stage = 'discovery';
     if(outcome === 'Appt Set') lead.stage = 'meeting_set';
     if(outcome === 'Nurturing'){ lead.stage = 'incubator'; if(!lead.incubatorTemp) lead.incubatorTemp = 'warm'; }
-    if(outcome === 'Lost'){ lead.stage = 'lost'; if(!lead.lostReason) lead.lostReason = 'Not Interested'; }
+    if(outcome === 'Lost'){ lead.stage = 'lost'; if(!lead.lostReason) lead.lostReason = 'Not Interested'; if(callNote && callNote.trim() && !lead.lossNotes) lead.lossNotes = callNote.trim().substring(0,150); }
     if(outcome === 'Bad #'){ lead.stage = 'lost'; lead.lostReason = 'Bad Number'; }
     if(outcome === 'Quoted') lead.stage = 'quoted';
     // v1.19.0 rule change — any callLog entry promotes New → Attempting so the New
@@ -2392,10 +2527,10 @@ function syncCalleyFromWebhook(silent){
      stageMoves.push(lead.name+': '+CRM_STAGE_LABELS[prevStage]+' → '+CRM_STAGE_LABELS[lead.stage]);
     }
    });
-   if(imported > 0 || autoCreated > 0){
+   if(imported > 0 || autoCreated > 0 || cleaned > 0){
     saveLeads();
     localStorage.setItem('calley_last_sync', new Date().toISOString());
-    var msg = '✅ Calley webhook sync: '+imported+' new call'+(imported===1?'':'s')+' imported';
+    var msg = '✅ Calley webhook sync: '+imported+' new call'+(imported===1?'':'s')+' imported'+(cleaned>0?' · '+cleaned+' duplicate'+(cleaned===1?'':'s')+' cleaned':'');
     if(autoCreated > 0){
      msg += '<br><span style="font-size:11px;color:#ff6b35">🆕 '+autoCreated+' new lead'+(autoCreated===1?'':'s')+' auto-created from orphan webhook'+(autoCreated===1?'':'s')+': '+autoCreatedNames.slice(0,5).join(', ')+(autoCreatedNames.length>5?' (+'+(autoCreatedNames.length-5)+')':'')+'</span>';
     }
@@ -3892,7 +4027,7 @@ var reportWeekStart = '';
 function showLostThisWeek(){
  var list = window._lostThisWeek || [];
  var byReason = {};
- list.forEach(function(x){ var r = x.reason || 'Not specified'; (byReason[r] = byReason[r] || []).push(x.name); });
+ list.forEach(function(x){ var r = x.reason || 'Not specified'; (byReason[r] = byReason[r] || []).push(x); });
  var h = '<div style="background:var(--bg);border-radius:12px;max-width:520px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5)">';
  h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">';
  h += '<h3 style="margin:0;color:#c0392b">📉 Lost This Week ('+list.length+')</h3>';
@@ -3901,7 +4036,7 @@ function showLostThisWeek(){
  if(list.length === 0){ h += '<p style="color:var(--muted);font-size:13px">None this week.</p>'; }
  Object.keys(byReason).sort(function(a,b){ return byReason[b].length - byReason[a].length; }).forEach(function(r){
   h += '<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:3px">'+escapeHtml(r)+' <span style="color:var(--muted)">('+byReason[r].length+')</span></div>';
-  h += '<div style="font-size:12px;color:var(--muted);line-height:1.6">'+byReason[r].map(function(n){ return escapeHtml(n); }).join(', ')+'</div></div>';
+  h += '<div style="font-size:12px;color:var(--muted);line-height:1.7">'+byReason[r].map(function(x){ return escapeHtml(x.name) + (x.note ? ' <span style="opacity:.8">— '+escapeHtml(x.note)+'</span>' : ''); }).join('<br>')+'</div></div>';
  });
  h += '</div></div>';
  var ov = document.createElement('div'); ov.id = 'lostWeekOverlay';
@@ -4120,6 +4255,7 @@ function genReport(weekStartYMDArg){
     // Append the recorded loss reason if present (old records may lack one — display as before)
     var lostLabel = '📉 Lost';
     if(l.lostReason) lostLabel += ' (' + l.lostReason + ')';
+    if(l.lossNotes) lostLabel += ' — ' + l.lossNotes;
     changes.push(lostLabel);
    }
    if(l.policyStatus && l.policyStatusChangedDate && l.policyStatusChangedDate >= thisThursISO && l.policyStatusChangedDate <= weekEndYMD+'T23:59:59.999Z'){
@@ -4184,7 +4320,7 @@ function genReport(weekStartYMDArg){
   // clickable summary instead of a row per name. Won / policy / decline rows stay detailed.
   var _isLostOnly = function(e){ return e.changes.length > 0 && e.changes.every(function(c){ return c.indexOf('📉 Lost') === 0; }); };
   var _lostOnly = _activityEntries.filter(_isLostOnly);
-  window._lostThisWeek = _lostOnly.map(function(e){ return {name: e.lead.name, reason: e.lead.lostReason || 'Not specified'}; });
+  window._lostThisWeek = _lostOnly.map(function(e){ return {name: e.lead.name, reason: e.lead.lostReason || 'Not specified', note: e.lead.lossNotes || ''}; });
   h += '<table><tr><th>Client</th><th>Premium</th><th>Product</th><th>Agent</th><th>Opportunity</th><th>Policy</th><th>Change</th><th>Notes</th></tr>';
   _activityEntries.filter(function(e){ return !_isLostOnly(e); }).forEach(function(e){
    var l = e.lead;
@@ -5192,7 +5328,7 @@ function logCall(leadId, outcome, block, notes){
    cbHtml += '<button onclick="setCallbackQuick('+lead.id+',30)" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">1 Month</button>';
    cbHtml += '<button onclick="setCallbackQuick('+lead.id+',60)" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">2 Months</button>';
    cbHtml += '<button onclick="setCallbackQuick('+lead.id+',90)" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">3 Months</button>';
-   cbHtml += '<input type="date" id="cb_custom_'+lead.id+'" style="font-size:11px;padding:4px" onchange="setCallbackCustom('+lead.id+')">';
+   cbHtml += '<input type="date" class="cb-date" id="cb_custom_'+lead.id+'" style="font-size:11px;padding:4px" onchange="setCallbackCustom('+lead.id+')">';
    cbHtml += '</div>';
    showToast(cbHtml, 999999);
   }, 100);
@@ -5533,12 +5669,15 @@ function setCallbackQuick(id, days){
  renderCRM();
 }
 function setCallbackCustom(id){
- dismissToasts();
  var lead = leads.find(function(l){return l.id === id});
  if(!lead) return;
+ // v1.21.0: read the picked date BEFORE dismissing the popup. dismissToasts()
+ // wipes the toast box (and the date input with it), so reading el.value after
+ // dismiss always returned null and the callback silently never saved.
  var el = document.getElementById('cb_custom_'+id);
- if(!el || !el.value) return;
+ if(!el || !el.value){ dismissToasts(); return; }
  lead.callbackDate = el.value;
+ dismissToasts();
  lead.callbackNote = lead.callLog && lead.callLog.length > 0 ? lead.callLog[lead.callLog.length-1].outcome || '' : '';
  saveLeads();
  showToast('📅 Callback set for '+lead.name+' on '+lead.callbackDate, 4000);
@@ -5555,28 +5694,45 @@ function clearCallback(id){
 }
 
 // ── REOPEN LEAD (New Opportunity) ──
-function reopenLead(id, newInterest){
- console.log('[reopenLead] id='+id+', newInterest='+newInterest);
+// opts: {interest, premium, product, agent} — only the keys present are applied;
+// anything omitted carries over from the prior deal. (Legacy: a bare string is
+// treated as the new interest, matching the old signature.)
+function reopenLead(id, opts){
+ if(typeof opts === 'string') opts = {interest: opts};
+ opts = opts || {};
+ console.log('[reopenLead] id='+id+', opts='+JSON.stringify(opts));
  var lead = leads.find(function(l){return l.id === id});
  if(!lead){ console.log('[reopenLead] LEAD NOT FOUND for id='+id); return; }
  console.log('[reopenLead] Found lead: '+lead.name+' (id='+lead.id+')');
- // Archive past deal
+ // Archive past deal — keep its economics so history isn't lost when we overwrite
  if(!lead.pastDeals) lead.pastDeals = [];
  lead.pastDeals.push({
   date: new Date().toISOString(),
   stage: lead.stage,
   interest: lead.interest,
+  product: lead.selectedProduct || '',
+  premium: lead.estPremium || '',
+  agent: lead.agent || '',
+  policyStatus: lead.policyStatus || '',
   wonReason: lead.wonReason || '',
   lostReason: lead.lostReason || '',
   callCount: lead.callLog ? lead.callLog.length : 0
  });
  // Reset for new opportunity
  lead.stage = 'discovery';
- lead.interest = newInterest || lead.interest;
+ if(opts.interest) lead.interest = opts.interest;
+ if('premium' in opts) lead.estPremium = opts.premium;
+ if('product' in opts) lead.selectedProduct = opts.product;
+ if('agent' in opts) lead.agent = opts.agent;
  lead.callLog = [];
  lead.stageEnteredDate = new Date().toISOString();
  lead.wonReason = '';
  lead.lostReason = '';
+ // Clear the stale policy badge — it belonged to the now-archived deal. The new
+ // opportunity has no DuetBooks case yet (App Submitted is CRM-only; it gets one
+ // when marked Won).
+ delete lead.policyStatus;
+ delete lead.policyStatusChangedDate;
  delete lead.callbackDate;
  delete lead.callbackNote;
  saveLeads();
@@ -5587,17 +5743,160 @@ function reopenLead(id, newInterest){
  renderCRM();
  console.log('[reopenLead] After renderCRM, crmEditId='+crmEditId);
 }
+
 function promptReopenLead(id){
  var lead = leads.find(function(l){return l.id === id});
  if(!lead) return;
- var h = '<div style="margin-bottom:6px"><b>🔄 New Opportunity for '+lead.name+'</b></div>';
- h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Select new product interest:</div>';
- h += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
+
+ var hasPrem = lead.estPremium && parseFloat(lead.estPremium) > 0;
+ var curPrem = hasPrem ? parseFloat(lead.estPremium) : 0;
+ var hasProd = lead.selectedProduct && (lead.selectedProduct + '').trim() !== '';
+ var curProd = hasProd ? lead.selectedProduct : '';
+ var curAgent = lead.agent || '';
+
+ var preferredCat = INTEREST_TO_PRODUCT_CAT[lead.interest] || '';
+ var categories = [];
+ products.forEach(function(p){ if(categories.indexOf(p.cat) < 0) categories.push(p.cat); });
+
+ var overlay = document.createElement('div');
+ overlay.id = 'reopenOverlay';
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+
+ var h = '<div style="background:var(--bg);max-width:520px;width:100%;max-height:90vh;border-radius:12px;padding:22px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.4)">';
+ h += '<h3 style="margin:0 0 6px;color:var(--pri)">🔄 New Opportunity for ' + escapeHtml(lead.name) + '</h3>';
+ h += '<p style="font-size:12px;color:var(--muted);margin:0 0 16px">Contact info & history stay; the previous deal is archived. Keep what carries over, change what\'s new for this policy.</p>';
+
+ // Interest / product category
+ h += '<div style="margin-bottom:14px">';
+ h += '<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Product Interest</label>';
+ h += '<select id="ro_interest" style="width:100%;padding:8px;font-size:13px;box-sizing:border-box">';
  INTEREST_CATS.forEach(function(c){
-  h += '<button onclick="dismissToasts();reopenLead('+id+',\''+c+'\')" style="background:var(--pri);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer">'+c+'</button>';
+  h += '<option value="' + escapeHtml(c) + '"' + (c === lead.interest ? ' selected' : '') + '>' + escapeHtml(c) + '</option>';
  });
+ h += '</select>';
  h += '</div>';
- showToast(h, 999999);
+
+ // Premium — keep existing or enter new
+ h += '<div style="margin-bottom:14px">';
+ h += '<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Premium / Deposit Amount</label>';
+ if(hasPrem){
+  h += '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:4px"><input type="radio" name="ro_prem_mode" value="existing" checked onchange="roTogglePrem()"> Use existing ($' + curPrem.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + ')</label>';
+  h += '<label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="ro_prem_mode" value="new" onchange="roTogglePrem()"> Enter new amount</label>';
+  h += '<input id="ro_premium" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:8px;font-size:13px;box-sizing:border-box;margin-top:6px;display:none">';
+ } else {
+  h += '<input id="ro_premium" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:8px;font-size:13px;box-sizing:border-box">';
+ }
+ h += '</div>';
+
+ // Product — keep existing or pick new
+ h += '<div style="margin-bottom:14px">';
+ h += '<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Product</label>';
+ if(hasProd){
+  h += '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:4px"><input type="radio" name="ro_prod_mode" value="existing" checked onchange="roToggleProd()"> Use existing (' + escapeHtml(curProd) + ')</label>';
+  h += '<label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="ro_prod_mode" value="new" onchange="roToggleProd()"> Select new product</label>';
+ }
+ h += '<div id="ro_prod_wrap" style="margin-top:6px' + (hasProd ? ';display:none' : '') + '">';
+ h += '<select id="ro_product_cat" onchange="roUpdateProductList()" style="width:100%;padding:8px;font-size:13px;margin-bottom:6px;box-sizing:border-box">';
+ categories.forEach(function(c){
+  h += '<option value="' + escapeHtml(c) + '"' + (c === preferredCat ? ' selected' : '') + '>' + escapeHtml(c) + '</option>';
+ });
+ h += '</select>';
+ h += '<select id="ro_product" style="width:100%;padding:8px;font-size:13px;box-sizing:border-box"></select>';
+ h += '</div>';
+ h += '</div>';
+
+ // Agent — keep existing or change
+ h += '<div style="margin-bottom:14px">';
+ h += '<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Split Agent</label>';
+ if(curAgent){
+  h += '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:4px"><input type="radio" name="ro_agent_mode" value="existing" checked onchange="roToggleAgent()"> Use existing (' + escapeHtml(curAgent) + ')</label>';
+  h += '<label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="ro_agent_mode" value="new" onchange="roToggleAgent()"> Change agent</label>';
+ }
+ h += '<select id="ro_agent" style="width:100%;padding:8px;font-size:13px;box-sizing:border-box;margin-top:6px' + (curAgent ? ';display:none' : '') + '">';
+ h += '<option value="">— Solo (no split — 100% to me) —</option>';
+ splitAgents.forEach(function(a){
+  if(a && a.name){
+   h += '<option value="' + escapeHtml(a.name) + '">' + escapeHtml(a.name) + (a.email ? ' (' + escapeHtml(a.email) + ')' : '') + '</option>';
+  }
+ });
+ h += '</select>';
+ h += '</div>';
+
+ h += '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap">';
+ h += '<button onclick="closeReopenModal()" style="padding:8px 14px;font-size:13px;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:6px;cursor:pointer">Cancel</button>';
+ h += '<button onclick="confirmReopen(' + lead.id + ')" class="btn btn-pri" style="padding:8px 14px;font-size:13px;font-weight:700">Create Opportunity</button>';
+ h += '</div>';
+ h += '</div>';
+ overlay.innerHTML = h;
+ document.body.appendChild(overlay);
+ setTimeout(roUpdateProductList, 30);
+}
+
+function roTogglePrem(){
+ var mode = document.querySelector('input[name=ro_prem_mode]:checked');
+ var inp = document.getElementById('ro_premium');
+ if(!mode || !inp) return;
+ inp.style.display = mode.value === 'new' ? 'block' : 'none';
+}
+function roToggleProd(){
+ var mode = document.querySelector('input[name=ro_prod_mode]:checked');
+ var wrap = document.getElementById('ro_prod_wrap');
+ if(!mode || !wrap) return;
+ wrap.style.display = mode.value === 'new' ? 'block' : 'none';
+ if(mode.value === 'new') roUpdateProductList();
+}
+function roToggleAgent(){
+ var mode = document.querySelector('input[name=ro_agent_mode]:checked');
+ var sel = document.getElementById('ro_agent');
+ if(!mode || !sel) return;
+ sel.style.display = mode.value === 'new' ? 'block' : 'none';
+}
+function roUpdateProductList(){
+ var catEl = document.getElementById('ro_product_cat');
+ var prodEl = document.getElementById('ro_product');
+ if(!catEl || !prodEl) return;
+ var cat = catEl.value;
+ prodEl.innerHTML = '';
+ products.filter(function(p){ return p.cat === cat; }).forEach(function(p){
+  var opt = document.createElement('option');
+  opt.value = p.name; opt.textContent = p.name;
+  prodEl.appendChild(opt);
+ });
+}
+function closeReopenModal(){
+ var o = document.getElementById('reopenOverlay');
+ if(o) o.remove();
+}
+function confirmReopen(id){
+ var lead = leads.find(function(l){return l.id === id});
+ if(!lead){ closeReopenModal(); return; }
+ var opts = {};
+ var intEl = document.getElementById('ro_interest');
+ if(intEl) opts.interest = intEl.value;
+
+ // Premium — only override if "new" chosen (or no existing to keep)
+ var premMode = document.querySelector('input[name=ro_prem_mode]:checked');
+ if(!premMode || premMode.value === 'new'){
+  var premEl = document.getElementById('ro_premium');
+  var p = premEl ? parseFloat(premEl.value) : 0;
+  if(!p || p <= 0){ showToast('Enter a valid premium amount (or choose Use existing)', 3000); return; }
+  opts.premium = p;
+ }
+ // Product
+ var prodMode = document.querySelector('input[name=ro_prod_mode]:checked');
+ if(!prodMode || prodMode.value === 'new'){
+  var prodEl = document.getElementById('ro_product');
+  if(!prodEl || !prodEl.value){ showToast('Pick a product (or choose Use existing)', 3000); return; }
+  opts.product = prodEl.value;
+ }
+ // Agent (empty string = Solo, which is a valid explicit choice)
+ var agentMode = document.querySelector('input[name=ro_agent_mode]:checked');
+ if(!agentMode || agentMode.value === 'new'){
+  var agentEl = document.getElementById('ro_agent');
+  opts.agent = agentEl ? (agentEl.value || '') : '';
+ }
+ closeReopenModal();
+ reopenLead(id, opts);
 }
 
 function deleteLead(id){
@@ -5802,9 +6101,13 @@ function convertToPipeline(lead){
    var arr = booksCases || [];
    if(arr && !Array.isArray(arr) && arr.data && Array.isArray(arr.data)) arr = arr.data;
    if(!Array.isArray(arr)) arr = Object.values(arr);
-   // Dedupe by client + product so repeated conversions don't double-add
+   // Dedupe by client + product so repeated conversions don't double-add — but
+   // only block on a LIVE in-flight case (pending/submitted/approved/issued). A
+   // prior declined/paid/paid-partial case of the same product must NOT block a
+   // rewrite (the 2nd-policy scenario), so those statuses let the new case through.
+   var OPEN_DEDUPE = ['pending','submitted','approved','issued'];
    var exists = arr.some(function(x){
-    return x && x.client === caseObj.client && x.product === caseObj.product && x.status !== 'paid';
+    return x && x.client === caseObj.client && x.product === caseObj.product && OPEN_DEDUPE.indexOf(x.status) !== -1;
    });
    if(!exists) arr.push(caseObj);
    return fetch('https://duet-crm-default-rtdb.firebaseio.com/duetbooks/steve_maxim/cases.json', {
@@ -9892,7 +10195,7 @@ function renderLeadDetail(){
    h += '<button class="btn btn-sm" onclick="setCallbackQuick('+lead.id+',30)" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">1 Month</button>';
    h += '<button class="btn btn-sm" onclick="setCallbackQuick('+lead.id+',60)" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">2 Months</button>';
    h += '<button class="btn btn-sm" onclick="setCallbackQuick('+lead.id+',90)" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">3 Months</button>';
-   h += '<input type="date" id="cb_custom_'+lead.id+'" onchange="setCallbackCustom('+lead.id+')" style="font-size:11px;padding:3px">';
+   h += '<input type="date" class="cb-date" id="cb_custom_'+lead.id+'" onchange="setCallbackCustom('+lead.id+')" style="font-size:11px;padding:3px">';
    h += '</div>';
   }
   h += '</div>';
